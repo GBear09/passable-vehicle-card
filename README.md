@@ -1,15 +1,16 @@
 # Passable Vehicle Card
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v1.0.0-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
+[![version](https://img.shields.io/badge/version-v1.1.0-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A sleek, customizable, and universal vehicle dashboard card for Home Assistant. Designed to monitor and control any electric vehicle (EV), internal combustion engine (ICE), or hybrid vehicle with dynamic animations and modern glassmorphism styling.
+A sleek, customizable, and universal vehicle dashboard card for Home Assistant. Designed to monitor and control any electric vehicle (EV), internal combustion engine (ICE), or hybrid vehicle with dynamic animations, modern glassmorphism styling, and **intelligent entity auto-discovery**.
 
 ---
 
 ## ✨ Features
 
+- 🔍 **Smart Auto-Discovery**: Simply provide **one single entity** (e.g. `entity: sensor.ev9_ev_battery_level`) or a `prefix` (e.g. `prefix: ev9`), and the card will automatically discover all matching sensors, binary sensors, climate entities, charge limit sliders, and scripts!
 - 🚗 **Universal Support**: Flexible configuration for EVs, Gas/ICE vehicles, and Hybrids.
 - 📱 **Interactive Views**:
   - **Home View**: Vehicle image overlay, real-time door open/closed monitor, quick lock toggle, battery/fuel circular gauge with remaining range, odometer, tire pressure, and relative update timestamp.
@@ -21,6 +22,27 @@ A sleek, customizable, and universal vehicle dashboard card for Home Assistant. 
   - Dynamic temperature color gradient from blue to neutral to orange.
 - 👆 **Touch Gesture Support**: Swipe left/right on touch devices to switch views seamlessly.
 - 🎨 **Modern Navigation**: Animated pill-expanding tab bar showing text labels on active selection.
+
+---
+
+## ⚡ Quick Start (Minimal Configuration)
+
+Thanks to **intelligent entity auto-discovery**, you only need to specify **one single entity**:
+
+```yaml
+type: custom:passable-vehicle-card
+entity: sensor.ev9_ev_battery_level
+```
+
+Or specify a prefix:
+
+```yaml
+type: custom:passable-vehicle-card
+title: Kia EV9
+prefix: ev9
+```
+
+The card will automatically scan Home Assistant and find range, lock status, door binary sensors, climate controls, charging sliders, and scripts!
 
 ---
 
@@ -41,7 +63,7 @@ A sleek, customizable, and universal vehicle dashboard card for Home Assistant. 
 2. Copy `passable-vehicle-card.js` to your `www/` directory (`/config/www/passable-vehicle-card.js`).
 3. In Home Assistant, go to **Settings** -> **Dashboards** -> **Three Dots (Top Right)** -> **Resources**.
 4. Add resource:
-   - **URL**: `/local/passable-vehicle-card.js?v=1.0.0`
+   - **URL**: `/local/passable-vehicle-card.js?v=1.1.0`
    - **Resource Type**: `JavaScript Module`
 
 ---
@@ -51,52 +73,59 @@ A sleek, customizable, and universal vehicle dashboard card for Home Assistant. 
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `type` | `string` | **Required** | Must be `custom:passable-vehicle-card` |
+| `entity` | `string` | Optional | **Primary entity (e.g. battery or fuel level)**. Triggers auto-discovery of all related vehicle sensors. |
+| `prefix` | `string` | Optional | **Entity prefix (e.g. `ev9` or `my_car`)**. Used to auto-discover vehicle entities. |
 | `title` | `string` | `My Vehicle` | Card title / vehicle name |
 | `subtitle` | `string` | `Vehicle Status` | Card subtitle text |
 | `fuel_type` | `string` | `ev` | Vehicle type: `ev`, `ice`, or `hybrid` |
 | `icon` | `string` | `mdi:car-electric` | MDI icon for header |
 | `image` | `string` | `""` | URL path to vehicle transparent PNG image |
 | `device_id` | `string` | `""` | Integration device ID for force updates & commands |
-| `entity` | `string` | Optional | Battery or Fuel level sensor entity |
-| `range_entity` | `string` | Optional | Remaining driving range sensor entity |
-| `charging_entity` | `string` | Optional | Binary sensor for charging status (`on`/`off`) |
-| `plug_entity` | `string` | Optional | Binary sensor for plug status (`on`/`off`) |
-| `lock_entity` | `string` | Optional | Door lock entity (`lock.vehicle_lock`) |
-| `odometer_entity` | `string` | Optional | Odometer sensor entity |
-| `tire_pressure_entity` | `string` | Optional | Tire pressure binary sensor entity |
-| `last_updated_entity` | `string` | Optional | Last update timestamp sensor entity |
-| `charging_power_entity` | `string` | Optional | Charging power sensor entity (kW) |
-| `hood_entity` | `string` | Optional | Hood binary sensor entity |
-| `trunk_entity` | `string` | Optional | Trunk binary sensor entity |
-| `door_fl_entity` | `string` | Optional | Front left door binary sensor entity |
-| `door_fr_entity` | `string` | Optional | Front right door binary sensor entity |
-| `door_rl_entity` | `string` | Optional | Rear left door binary sensor entity |
-| `door_rr_entity` | `string` | Optional | Rear right door binary sensor entity |
-| `hvac_status_entity` | `string` | Optional | Climate/HVAC active binary sensor entity |
-| `climate_temp_entity` | `string` | Optional | Climate target temperature entity |
-| `climate_duration_entity` | `string` | Optional | Defrost duration entity |
-| `climate_defrost_entity` | `string` | Optional | Front defrost boolean entity |
-| `climate_heat_entity` | `string` | Optional | Rear defrost boolean entity |
-| `wheel_heat_entity` | `string` | Optional | Steering wheel heat select entity |
-| `seat_fl_entity` | `string` | Optional | Driver seat heat/cool select entity |
-| `seat_fr_entity` | `string` | Optional | Passenger seat heat/cool select entity |
-| `seat_rl_entity` | `string` | Optional | Rear left seat heat/cool select entity |
-| `seat_rr_entity` | `string` | Optional | Rear right seat heat/cool select entity |
-| `ac_limit_entity` | `string` | Optional | AC charge limit number entity |
-| `dc_limit_entity` | `string` | Optional | DC charge limit number entity |
-| `ac_current_entity` | `string` | Optional | AC charging current select entity |
-| `charge_time_entity` | `string` | Optional | Estimated charge time remaining sensor entity |
-| `start_climate_script` | `string` | Optional | Script or service to start climate |
-| `stop_climate_script` | `string` | Optional | Script or service to stop climate |
-| `save_profile_script` | `string` | Optional | Script to save driver profile |
-| `start_charge_service` | `string` | Optional | Service to start charging |
-| `stop_charge_service` | `string` | Optional | Service to stop charging |
-| `force_update_service` | `string` | Optional | Service to trigger vehicle state update |
+| `range_entity` | `string` | Auto | Override auto-discovered remaining driving range sensor entity |
+| `charging_entity` | `string` | Auto | Override auto-discovered charging binary sensor (`on`/`off`) |
+| `plug_entity` | `string` | Auto | Override auto-discovered plug binary sensor (`on`/`off`) |
+| `lock_entity` | `string` | Auto | Override auto-discovered door lock entity (`lock.vehicle_lock`) |
+| `odometer_entity` | `string` | Auto | Override auto-discovered odometer sensor entity |
+| `tire_pressure_entity` | `string` | Auto | Override auto-discovered tire pressure binary sensor entity |
+| `last_updated_entity` | `string` | Auto | Override auto-discovered last update timestamp sensor entity |
+| `charging_power_entity` | `string` | Auto | Override auto-discovered charging power sensor entity (kW) |
+| `hood_entity` | `string` | Auto | Override auto-discovered hood binary sensor entity |
+| `trunk_entity` | `string` | Auto | Override auto-discovered trunk binary sensor entity |
+| `door_fl_entity` | `string` | Auto | Override auto-discovered front left door binary sensor entity |
+| `door_fr_entity` | `string` | Auto | Override auto-discovered front right door binary sensor entity |
+| `door_rl_entity` | `string` | Auto | Override auto-discovered rear left door binary sensor entity |
+| `door_rr_entity` | `string` | Auto | Override auto-discovered rear right door binary sensor entity |
+| `hvac_status_entity` | `string` | Auto | Override auto-discovered HVAC active binary sensor entity |
+| `climate_temp_entity` | `string` | Auto | Override auto-discovered climate target temperature entity |
+| `climate_duration_entity` | `string` | Auto | Override auto-discovered defrost duration entity |
+| `climate_defrost_entity` | `string` | Auto | Override auto-discovered front defrost boolean entity |
+| `climate_heat_entity` | `string` | Auto | Override auto-discovered rear defrost boolean entity |
+| `wheel_heat_entity` | `string` | Auto | Override auto-discovered steering wheel heat select entity |
+| `seat_fl_entity` | `string` | Auto | Override auto-discovered driver seat heat/cool select entity |
+| `seat_fr_entity` | `string` | Auto | Override auto-discovered passenger seat heat/cool select entity |
+| `seat_rl_entity` | `string` | Auto | Override auto-discovered rear left seat heat/cool select entity |
+| `seat_rr_entity` | `string` | Auto | Override auto-discovered rear right seat heat/cool select entity |
+| `ac_limit_entity` | `string` | Auto | Override auto-discovered AC charge limit number entity |
+| `dc_limit_entity` | `string` | Auto | Override auto-discovered DC charge limit number entity |
+| `ac_current_entity` | `string` | Auto | Override auto-discovered AC charging current select entity |
+| `charge_time_entity` | `string` | Auto | Override auto-discovered charge time remaining sensor entity |
+| `start_climate_script` | `string` | Auto | Override auto-discovered climate start script/service |
+| `stop_climate_script` | `string` | Auto | Override auto-discovered climate stop script/service |
+| `save_profile_script` | `string` | Auto | Override auto-discovered profile save script |
 
 ---
 
-## 📝 Example YAML Configuration
+## 📝 Configuration Examples
 
+### Minimal Setup (Using Auto-Discovery)
+```yaml
+type: custom:passable-vehicle-card
+title: Kia EV9
+entity: sensor.ev9_ev_battery_level
+image: /local/images/kia_ev9.png
+```
+
+### Full Custom Override Setup
 ```yaml
 type: custom:passable-vehicle-card
 title: Kia EV9

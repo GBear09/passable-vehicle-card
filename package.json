@@ -1,7 +1,7 @@
 {
   "name": "passable-vehicle-card",
-  "version": "1.0.0",
-  "description": "Passable Vehicle Card - A customizable, universal vehicle dashboard card for Home Assistant.",
+  "version": "1.1.0",
+  "description": "Passable Vehicle Card - A customizable, universal vehicle dashboard card for Home Assistant with intelligent entity auto-discovery.",
   "main": "passable-vehicle-card.js",
   "repository": {
     "type": "git",
@@ -13,7 +13,8 @@
     "custom-card",
     "vehicle",
     "car-card",
-    "dashboard"
+    "dashboard",
+    "auto-discovery"
   ],
   "author": "GBear09",
   "license": "MIT",

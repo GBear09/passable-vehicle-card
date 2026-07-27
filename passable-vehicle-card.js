@@ -1,11 +1,11 @@
 /**
  * Passable Vehicle Card
- * Version: 1.0.0
+ * Version: 1.1.0
  * GitHub: https://github.com/GBear09/passable-vehicle-card
- * Description: A customizable, universal vehicle dashboard card for Home Assistant.
+ * Description: A customizable, universal vehicle dashboard card for Home Assistant with intelligent entity auto-discovery.
  */
 
-const CARD_VERSION = "1.0.0";
+const CARD_VERSION = "1.1.0";
 
 console.info(
   `%c PASSABLE VEHICLE CARD %c v${CARD_VERSION} `,
@@ -18,7 +18,7 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "passable-vehicle-card",
   name: "Passable Vehicle Card",
-  description: "A customizable, universal vehicle dashboard card for Home Assistant.",
+  description: "A customizable, universal vehicle dashboard card for Home Assistant with entity auto-discovery.",
   preview: true,
 });
 
@@ -56,6 +56,7 @@ class PassableVehicleCard extends LitElement {
       icon: config.icon || "mdi:car-electric",
       image: config.image || "",
       device_id: config.device_id || "",
+      prefix: config.prefix || "",
       ...config,
     };
   }
@@ -67,19 +68,139 @@ class PassableVehicleCard extends LitElement {
   static getStubConfig() {
     return {
       title: "My Vehicle",
-      fuel_type: "ev",
       entity: "sensor.vehicle_battery_level",
-      range_entity: "sensor.vehicle_range",
-      charging_entity: "binary_sensor.vehicle_charging",
-      plug_entity: "binary_sensor.vehicle_plugged_in",
-      lock_entity: "lock.vehicle_door_lock",
-      odometer_entity: "sensor.vehicle_odometer",
     };
   }
 
   // --- HELPER: GET DEVICE ID ---
   _getDeviceId() {
     return this.config.device_id || "";
+  }
+
+  // --- HELPER: AUTO DISCOVERY SYSTEM ---
+  _discoverEntities() {
+    if (!this.hass || !this.hass.states) return {};
+
+    const cfg = this.config || {};
+    const allStates = Object.keys(this.hass.states);
+
+    // Determine prefix candidates
+    const prefixes = new Set();
+    if (cfg.prefix) prefixes.add(cfg.prefix.toLowerCase());
+
+    const primaryEntity = cfg.entity || cfg.battery_entity || cfg.range_entity || cfg.lock_entity;
+    if (primaryEntity) {
+      const objectId = primaryEntity.split(".")[1] || "";
+      const parts = objectId.split("_");
+      if (parts.length > 0) {
+        prefixes.add(parts[0]); // e.g. "ev9"
+        if (parts.length > 1) prefixes.add(`${parts[0]}_${parts[1]}`); // e.g. "ev9_ev" or "kia_ev9"
+      }
+    }
+
+    const entityPatterns = {
+      battery: ["battery_level", "ev_battery_level", "battery", "soc", "fuel_level", "fuel_percent"],
+      range: ["ev_range", "range", "battery_range", "fuel_range", "remaining_range"],
+      charging: ["ev_battery_charge", "charging_status", "is_charging", "battery_charging", "charging"],
+      plug: ["ev_battery_plug", "plugged_in", "charge_port", "plug_status", "plug"],
+      lock: ["door_lock", "lock", "vehicle_lock", "doors_locked"],
+      odometer: ["odometer", "total_distance", "mileage"],
+      last_updated: ["last_updated_at", "last_updated", "last_seen", "status_updated"],
+      charging_power: ["ev_charging_power", "charging_power", "charger_power"],
+      tire_pressure: ["tire_pressure_all", "tire_pressure", "tpms", "tire_pressure_warning"],
+      hood: ["hood", "hood_status", "engine_hood"],
+      trunk: ["trunk", "trunk_status", "tailgate", "boot"],
+      door_fl: ["front_left_door", "door_front_left", "door_fl", "driver_door"],
+      door_fr: ["front_right_door", "door_front_right", "door_fr", "passenger_door"],
+      door_rl: ["back_left_door", "rear_left_door", "door_back_left", "door_rear_left", "door_rl"],
+      door_rr: ["back_right_door", "rear_right_door", "door_back_right", "door_rear_right", "door_rr"],
+      hvac_active: ["air_conditioner", "hvac", "climate", "climate_status", "air_conditioning"],
+      climate_temp: ["climate_temperature", "target_temperature", "hvac_temp"],
+      climate_duration: ["climate_duration", "defrost_duration", "hvac_duration"],
+      climate_defrost: ["climate_defrost", "defrost_front", "front_defrost"],
+      climate_heat: ["climate_heating", "defrost_rear", "rear_defrost"],
+      wheel_heat: ["steering_wheel_heat", "steering_wheel_heater", "heated_steering_wheel"],
+      seat_fl: ["fl_seat", "driver_seat", "front_left_seat"],
+      seat_fr: ["fr_seat", "passenger_seat", "front_right_seat"],
+      seat_rl: ["rl_seat", "rear_left_seat", "back_left_seat"],
+      seat_rr: ["rr_seat", "rear_right_seat", "back_right_seat"],
+      ac_limit: ["ac_charging_limit", "ac_limit", "charge_limit_ac"],
+      dc_limit: ["dc_charging_limit", "dc_limit", "charge_limit_dc"],
+      ac_current: ["ac_charging_current", "ac_current"],
+      charge_time: ["estimated_charge_duration", "charge_time_remaining", "time_to_full"],
+      profile: ["profile", "driver_profile"],
+    };
+
+    const discovered = {};
+
+    for (const [key, patterns] of Object.entries(entityPatterns)) {
+      const configKey = key === "battery" ? "entity" : `${key}_entity`;
+      if (cfg[configKey]) {
+        discovered[key] = cfg[configKey];
+        continue;
+      }
+      if (key === "battery" && cfg.battery_entity) {
+        discovered[key] = cfg.battery_entity;
+        continue;
+      }
+
+      let found = null;
+
+      // 1. Search with prefix matching
+      for (const pattern of patterns) {
+        for (const prefix of prefixes) {
+          const candidateMatches = [
+            `_${prefix}_${pattern}`,
+            `.${prefix}_${pattern}`,
+            `_${prefix}_ev_${pattern}`,
+          ];
+          found = allStates.find((id) => {
+            const objId = id.split(".")[1];
+            return (
+              objId === `${prefix}_${pattern}` ||
+              objId === `${prefix}_ev_${pattern}` ||
+              objId === `${prefix}_kia_${pattern}` ||
+              objId.includes(`${prefix}_${pattern}`) ||
+              objId.includes(pattern) && (objId.includes(prefix) || prefixes.size === 0)
+            );
+          });
+          if (found) break;
+        }
+        if (found) break;
+
+        // 2. Search exact suffix match across all domain states if no prefix match found
+        found = allStates.find((id) => {
+          const objId = id.split(".")[1];
+          return objId === pattern || objId.endsWith(`_${pattern}`);
+        });
+        if (found) break;
+      }
+
+      if (found) {
+        discovered[key] = found;
+      }
+    }
+
+    // Auto discover scripts
+    discovered.start_climate_script = cfg.start_climate_script || this._findScript(prefixes, "start_climate");
+    discovered.stop_climate_script = cfg.stop_climate_script || this._findScript(prefixes, "stop_climate");
+    discovered.save_profile_script = cfg.save_profile_script || this._findScript(prefixes, "save_profile");
+
+    return discovered;
+  }
+
+  _findScript(prefixes, scriptName) {
+    if (!this.hass || !this.hass.states) return "";
+    const allStates = Object.keys(this.hass.states);
+    for (const prefix of prefixes) {
+      const candidate = allStates.find(
+        (id) =>
+          id.startsWith("script.") &&
+          (id.includes(`${prefix}_${scriptName}`) || id.includes(`${scriptName}_${prefix}`))
+      );
+      if (candidate) return candidate;
+    }
+    return allStates.find((id) => id.startsWith("script.") && id.includes(scriptName)) || "";
   }
 
   // --- HELPER: RELATIVE TIME ---
@@ -212,38 +333,7 @@ class PassableVehicleCard extends LitElement {
   render() {
     if (!this.hass || !this.config) return html``;
 
-    const entities = {
-      battery: this.config.entity || this.config.battery_entity,
-      range: this.config.range_entity,
-      charging: this.config.charging_entity,
-      plug: this.config.plug_entity,
-      lock: this.config.lock_entity,
-      odometer: this.config.odometer_entity,
-      last_updated: this.config.last_updated_entity,
-      charging_power: this.config.charging_power_entity,
-      hood: this.config.hood_entity,
-      trunk: this.config.trunk_entity,
-      door_fl: this.config.door_fl_entity,
-      door_fr: this.config.door_fr_entity,
-      door_rl: this.config.door_rl_entity,
-      door_rr: this.config.door_rr_entity,
-      profile: this.config.profile_entity,
-      climate_temp: this.config.climate_temp_entity,
-      climate_duration: this.config.climate_duration_entity,
-      climate_defrost: this.config.climate_defrost_entity,
-      climate_heat: this.config.climate_heat_entity,
-      wheel_heat: this.config.wheel_heat_entity,
-      seat_fl: this.config.seat_fl_entity,
-      seat_fr: this.config.seat_fr_entity,
-      seat_rl: this.config.seat_rl_entity,
-      seat_rr: this.config.seat_rr_entity,
-      hvac_active: this.config.hvac_status_entity,
-      ac_limit: this.config.ac_limit_entity,
-      dc_limit: this.config.dc_limit_entity,
-      ac_current: this.config.ac_current_entity,
-      charge_time: this.config.charge_time_entity,
-      tire_pressure: this.config.tire_pressure_entity,
-    };
+    const entities = this._discoverEntities();
 
     const get = (id) => (id ? this.hass.states[id] : undefined);
     const val = (id) => (get(id) ? get(id).state : "N/A");
@@ -668,21 +758,21 @@ class PassableVehicleCard extends LitElement {
         <div class="action-buttons with-gap">
           <button
             class="action-btn start"
-            @click=${() => this._handleClimateStart()}
+            @click=${() => this._handleClimateStart(entities)}
           >
             <ha-icon icon="mdi:fan"></ha-icon> Start
           </button>
           <button
             class="action-btn stop"
-            @click=${() => this._handleClimateStop()}
+            @click=${() => this._handleClimateStop(entities)}
           >
             <ha-icon icon="mdi:stop"></ha-icon> Stop
           </button>
-          ${this.config.save_profile_script || entities.profile
+          ${entities.save_profile_script || entities.profile
             ? html`
                 <button
                   class="action-btn save"
-                  @click=${() => this._handleSaveProfile()}
+                  @click=${() => this._handleSaveProfile(entities)}
                 >
                   <ha-icon icon="mdi:content-save"></ha-icon>
                 </button>
@@ -1068,39 +1158,40 @@ class PassableVehicleCard extends LitElement {
     this._showToast(`Setting Limit to ${value}%`);
   }
 
-  _handleClimateStart() {
-    if (this.config.start_climate_script) {
-      const [domain, service] = this.config.start_climate_script.split(".");
+  _handleClimateStart(entities) {
+    const targetScript = this.config.start_climate_script || entities.start_climate_script;
+    if (targetScript) {
+      const [domain, service] = targetScript.split(".");
       if (domain === "script") {
-        this.hass.callService("script", "turn_on", { entity_id: this.config.start_climate_script });
+        this.hass.callService("script", "turn_on", { entity_id: targetScript });
       } else {
         this.hass.callService(domain, service, {});
       }
+      this._showToast("Climate Started");
     } else {
-      this._showToast("No climate start script configured");
-      return;
+      this._showToast("No climate start script found");
     }
-    this._showToast("Climate Started");
   }
 
-  _handleClimateStop() {
-    if (this.config.stop_climate_script) {
-      const [domain, service] = this.config.stop_climate_script.split(".");
+  _handleClimateStop(entities) {
+    const targetScript = this.config.stop_climate_script || entities.stop_climate_script;
+    if (targetScript) {
+      const [domain, service] = targetScript.split(".");
       if (domain === "script") {
-        this.hass.callService("script", "turn_on", { entity_id: this.config.stop_climate_script });
+        this.hass.callService("script", "turn_on", { entity_id: targetScript });
       } else {
         this.hass.callService(domain, service, {});
       }
+      this._showToast("Climate Stopped");
     } else {
-      this._showToast("No climate stop script configured");
-      return;
+      this._showToast("No climate stop script found");
     }
-    this._showToast("Climate Stopped");
   }
 
-  _handleSaveProfile() {
-    if (this.config.save_profile_script) {
-      this.hass.callService("script", "turn_on", { entity_id: this.config.save_profile_script });
+  _handleSaveProfile(entities) {
+    const targetScript = this.config.save_profile_script || entities.save_profile_script;
+    if (targetScript) {
+      this.hass.callService("script", "turn_on", { entity_id: targetScript });
       this._showToast("Settings Saved");
     }
   }
@@ -1112,7 +1203,13 @@ class PassableVehicleCard extends LitElement {
       this.hass.callService(domain, service, payload);
       this._showToast("Force Update Sent");
     } else {
-      this._showToast("Refreshing Status");
+      // Default to kia_uvo force_update if kia_uvo service exists, otherwise toast
+      if (this.hass.services?.kia_uvo?.force_update) {
+        this.hass.callService("kia_uvo", "force_update", this._getDeviceId() ? { device_id: this._getDeviceId() } : {});
+        this._showToast("Force Update Sent");
+      } else {
+        this._showToast("Refreshing Status");
+      }
     }
   }
 
@@ -1122,6 +1219,9 @@ class PassableVehicleCard extends LitElement {
       const [domain, service] = this.config[serviceKey].split(".");
       const payload = this._getDeviceId() ? { device_id: this._getDeviceId() } : {};
       this.hass.callService(domain, service, payload);
+      this._showToast(msg);
+    } else if (this.hass.services?.kia_uvo?.[`${action}_charge`]) {
+      this.hass.callService("kia_uvo", `${action}_charge`, this._getDeviceId() ? { device_id: this._getDeviceId() } : {});
       this._showToast(msg);
     } else {
       this._showToast(`No charge ${action} service configured`);
