@@ -1,11 +1,11 @@
 /**
  * Passable Vehicle Card
- * Version: 1.1.0
+ * Version: 1.2.0
  * GitHub: https://github.com/GBear09/passable-vehicle-card
- * Description: A customizable, universal vehicle dashboard card for Home Assistant with intelligent entity auto-discovery.
+ * Description: A customizable, universal vehicle dashboard card for Home Assistant with visual UI editor and entity auto-discovery.
  */
 
-const CARD_VERSION = "1.1.0";
+const CARD_VERSION = "1.2.0";
 
 console.info(
   `%c PASSABLE VEHICLE CARD %c v${CARD_VERSION} `,
@@ -18,7 +18,7 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "passable-vehicle-card",
   name: "Passable Vehicle Card",
-  description: "A customizable, universal vehicle dashboard card for Home Assistant with entity auto-discovery.",
+  description: "A customizable, universal vehicle dashboard card for Home Assistant with entity auto-discovery and visual UI editor.",
   preview: true,
 });
 
@@ -63,6 +63,10 @@ class PassableVehicleCard extends LitElement {
 
   getCardSize() {
     return 8;
+  }
+
+  static getConfigElement() {
+    return document.createElement("passable-vehicle-card-editor");
   }
 
   static getStubConfig() {
@@ -149,11 +153,6 @@ class PassableVehicleCard extends LitElement {
       // 1. Search with prefix matching
       for (const pattern of patterns) {
         for (const prefix of prefixes) {
-          const candidateMatches = [
-            `_${prefix}_${pattern}`,
-            `.${prefix}_${pattern}`,
-            `_${prefix}_ev_${pattern}`,
-          ];
           found = allStates.find((id) => {
             const objId = id.split(".")[1];
             return (
@@ -161,7 +160,7 @@ class PassableVehicleCard extends LitElement {
               objId === `${prefix}_ev_${pattern}` ||
               objId === `${prefix}_kia_${pattern}` ||
               objId.includes(`${prefix}_${pattern}`) ||
-              objId.includes(pattern) && (objId.includes(prefix) || prefixes.size === 0)
+              (objId.includes(pattern) && (objId.includes(prefix) || prefixes.size === 0))
             );
           });
           if (found) break;
@@ -654,14 +653,16 @@ class PassableVehicleCard extends LitElement {
 
   // --- VIEW: CONTROLS ---
   _renderControlsView(entities) {
+    const profileState = entities.profile ? this.hass.states[entities.profile] : null;
+    const profileOptions = profileState?.attributes?.options || ["Driver 1", "Driver 2"];
+
     return html`
       <div class="view-container controls ${this._animDirection}">
         ${entities.profile
           ? html`
               <div class="controls-header">
                 <div class="profile-selector">
-                  ${this._renderProfileChip(entities.profile, "Driver 1")}
-                  ${this._renderProfileChip(entities.profile, "Driver 2")}
+                  ${profileOptions.map((opt) => this._renderProfileChip(entities.profile, opt))}
                 </div>
               </div>
               <div class="divider"></div>
@@ -1203,7 +1204,6 @@ class PassableVehicleCard extends LitElement {
       this.hass.callService(domain, service, payload);
       this._showToast("Force Update Sent");
     } else {
-      // Default to kia_uvo force_update if kia_uvo service exists, otherwise toast
       if (this.hass.services?.kia_uvo?.force_update) {
         this.hass.callService("kia_uvo", "force_update", this._getDeviceId() ? { device_id: this._getDeviceId() } : {});
         this._showToast("Force Update Sent");
@@ -2144,4 +2144,218 @@ class PassableVehicleCard extends LitElement {
   }
 }
 
+// Custom Card Visual Editor Component
+class PassableVehicleCardEditor extends LitElement {
+  static get properties() {
+    return {
+      hass: {},
+      _config: {},
+    };
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+  }
+
+  _valueChanged(ev) {
+    if (!this._config || !this.hass) return;
+    const target = ev.target;
+    const configValue = target.configValue;
+    if (!configValue) return;
+
+    const value = target.value;
+
+    if (this._config[configValue] === value) return;
+
+    let newConfig = { ...this._config };
+    if (value === "" || value === undefined) {
+      delete newConfig[configValue];
+    } else {
+      newConfig[configValue] = value;
+    }
+
+    this._config = newConfig;
+    this.dispatchEvent(
+      new CustomEvent("config-changed", { detail: { config: this._config } })
+    );
+  }
+
+  render() {
+    if (!this.hass) return html``;
+
+    return html`
+      <div class="card-config">
+        <div class="option-row">
+          <label class="label">Vehicle Title</label>
+          <input
+            class="input-text"
+            .value=${this._config.title || ""}
+            .configValue=${"title"}
+            @input=${this._valueChanged}
+            placeholder="My Vehicle"
+          />
+        </div>
+
+        <div class="option-row">
+          <label class="label">Subtitle</label>
+          <input
+            class="input-text"
+            .value=${this._config.subtitle || ""}
+            .configValue=${"subtitle"}
+            @input=${this._valueChanged}
+            placeholder="Vehicle Status"
+          />
+        </div>
+
+        <div class="option-row">
+          <label class="label">Fuel Type</label>
+          <select
+            class="input-select"
+            .value=${this._config.fuel_type || "ev"}
+            .configValue=${"fuel_type"}
+            @change=${this._valueChanged}
+          >
+            <option value="ev">Electric Vehicle (EV)</option>
+            <option value="ice">Gasoline / ICE</option>
+            <option value="hybrid">Hybrid</option>
+          </select>
+        </div>
+
+        <div class="option-row">
+          <label class="label">Primary Entity (Auto-Discovers Rest)</label>
+          <input
+            class="input-text"
+            .value=${this._config.entity || ""}
+            .configValue=${"entity"}
+            @input=${this._valueChanged}
+            placeholder="sensor.ev9_ev_battery_level"
+          />
+          <span class="help-text">Providing one primary entity auto-discovers all car sensors!</span>
+        </div>
+
+        <div class="option-row">
+          <label class="label">Entity Prefix (Optional)</label>
+          <input
+            class="input-text"
+            .value=${this._config.prefix || ""}
+            .configValue=${"prefix"}
+            @input=${this._valueChanged}
+            placeholder="ev9"
+          />
+        </div>
+
+        <div class="option-row">
+          <label class="label">Car Image URL (Optional)</label>
+          <input
+            class="input-text"
+            .value=${this._config.image || ""}
+            .configValue=${"image"}
+            @input=${this._valueChanged}
+            placeholder="/local/images/car.png"
+          />
+        </div>
+
+        <details class="advanced-section">
+          <summary>Advanced Entity Overrides</summary>
+          <div class="details-content">
+            <div class="option-row">
+              <label class="label">Range Entity</label>
+              <input class="input-text" .value=${this._config.range_entity || ""} .configValue=${"range_entity"} @input=${this._valueChanged} />
+            </div>
+            <div class="option-row">
+              <label class="label">Lock Entity</label>
+              <input class="input-text" .value=${this._config.lock_entity || ""} .configValue=${"lock_entity"} @input=${this._valueChanged} />
+            </div>
+            <div class="option-row">
+              <label class="label">Charging Entity</label>
+              <input class="input-text" .value=${this._config.charging_entity || ""} .configValue=${"charging_entity"} @input=${this._valueChanged} />
+            </div>
+            <div class="option-row">
+              <label class="label">Plug Entity</label>
+              <input class="input-text" .value=${this._config.plug_entity || ""} .configValue=${"plug_entity"} @input=${this._valueChanged} />
+            </div>
+            <div class="option-row">
+              <label class="label">Odometer Entity</label>
+              <input class="input-text" .value=${this._config.odometer_entity || ""} .configValue=${"odometer_entity"} @input=${this._valueChanged} />
+            </div>
+            <div class="option-row">
+              <label class="label">Climate Temp Entity</label>
+              <input class="input-text" .value=${this._config.climate_temp_entity || ""} .configValue=${"climate_temp_entity"} @input=${this._valueChanged} />
+            </div>
+            <div class="option-row">
+              <label class="label">Climate Duration Entity</label>
+              <input class="input-text" .value=${this._config.climate_duration_entity || ""} .configValue=${"climate_duration_entity"} @input=${this._valueChanged} />
+            </div>
+            <div class="option-row">
+              <label class="label">Start Climate Script</label>
+              <input class="input-text" .value=${this._config.start_climate_script || ""} .configValue=${"start_climate_script"} @input=${this._valueChanged} />
+            </div>
+            <div class="option-row">
+              <label class="label">Stop Climate Script</label>
+              <input class="input-text" .value=${this._config.stop_climate_script || ""} .configValue=${"stop_climate_script"} @input=${this._valueChanged} />
+            </div>
+            <div class="option-row">
+              <label class="label">Device ID (For Force Update / UVO)</label>
+              <input class="input-text" .value=${this._config.device_id || ""} .configValue=${"device_id"} @input=${this._valueChanged} />
+            </div>
+          </div>
+        </details>
+      </div>
+    `;
+  }
+
+  static get styles() {
+    return css`
+      .card-config {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 12px;
+      }
+      .option-row {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .label {
+        font-weight: 600;
+        font-size: 0.9em;
+        color: var(--primary-text-color);
+      }
+      .help-text {
+        font-size: 0.75em;
+        color: var(--secondary-text-color);
+      }
+      .input-text, .input-select {
+        padding: 8px 12px;
+        border: 1px solid var(--divider-color, #ccc);
+        border-radius: 6px;
+        background: var(--card-background-color, #fff);
+        color: var(--primary-text-color, #000);
+        font-size: 0.9em;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .advanced-section {
+        margin-top: 8px;
+        border: 1px solid var(--divider-color, #ccc);
+        border-radius: 6px;
+        padding: 8px 12px;
+      }
+      .advanced-section summary {
+        font-weight: 600;
+        cursor: pointer;
+        color: var(--primary-color);
+      }
+      .details-content {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 10px;
+      }
+    `;
+  }
+}
+
 customElements.define("passable-vehicle-card", PassableVehicleCard);
+customElements.define("passable-vehicle-card-editor", PassableVehicleCardEditor);
