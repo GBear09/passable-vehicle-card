@@ -1,11 +1,11 @@
 /**
  * Passable Vehicle Card
- * Version: 1.3.0
+ * Version: 1.4.0
  * GitHub: https://github.com/GBear09/passable-vehicle-card
- * Description: A customizable, universal vehicle dashboard card for Home Assistant with visual UI dropdown editor and entity auto-discovery.
+ * Description: A customizable, universal vehicle dashboard card for Home Assistant with native ha-entity-picker visual UI editor and entity auto-discovery.
  */
 
-const CARD_VERSION = "1.3.0";
+const CARD_VERSION = "1.4.0";
 
 console.info(
   `%c PASSABLE VEHICLE CARD %c v${CARD_VERSION} `,
@@ -18,7 +18,7 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "passable-vehicle-card",
   name: "Passable Vehicle Card",
-  description: "A customizable, universal vehicle dashboard card for Home Assistant with entity auto-discovery and visual UI editor.",
+  description: "A customizable, universal vehicle dashboard card for Home Assistant with entity auto-discovery and native visual UI picker.",
   preview: true,
 });
 
@@ -2141,7 +2141,7 @@ class PassableVehicleCard extends LitElement {
   }
 }
 
-// Custom Card Visual Editor Component with Filtered Dropdown Entity Selectors
+// Custom Card Visual Editor Component with Native HA-Entity-Picker Integration
 class PassableVehicleCardEditor extends LitElement {
   static get properties() {
     return {
@@ -2157,15 +2157,15 @@ class PassableVehicleCardEditor extends LitElement {
   _valueChanged(ev) {
     if (!this._config || !this.hass) return;
     const target = ev.target;
-    const configValue = target.configValue;
+    const configValue = target.configValue || target.getAttribute("configValue");
     if (!configValue) return;
 
-    const value = target.value;
+    const value = ev.detail && ev.detail.value !== undefined ? ev.detail.value : target.value;
 
     if (this._config[configValue] === value) return;
 
     let newConfig = { ...this._config };
-    if (value === "" || value === undefined) {
+    if (value === "" || value === undefined || value === null) {
       delete newConfig[configValue];
     } else {
       newConfig[configValue] = value;
@@ -2177,37 +2177,20 @@ class PassableVehicleCardEditor extends LitElement {
     );
   }
 
-  _renderEntitySelect(configValue, label, domainFilter = [], helpText = "") {
-    if (!this.hass || !this.hass.states) return html``;
-
-    const allEntities = Object.keys(this.hass.states).sort();
-    const filtered = allEntities.filter((id) => {
-      if (!domainFilter || domainFilter.length === 0) return true;
-      const domain = id.split(".")[0];
-      return domainFilter.includes(domain);
-    });
-
+  _renderEntityPicker(configValue, label, domainFilter = null, helpText = "") {
     const currentValue = this._config[configValue] || "";
 
     return html`
       <div class="option-row">
-        <label class="label">${label}</label>
-        <select
-          class="input-select"
+        <ha-entity-picker
+          .hass=${this.hass}
           .value=${currentValue}
           .configValue=${configValue}
-          @change=${this._valueChanged}
-        >
-          <option value="" ?selected=${currentValue === ""}>-- Auto-Discover / None --</option>
-          ${filtered.map((id) => {
-            const friendlyName = this.hass.states[id]?.attributes?.friendly_name || id;
-            return html`
-              <option value="${id}" ?selected=${id === currentValue}>
-                ${id} (${friendlyName})
-              </option>
-            `;
-          })}
-        </select>
+          .label=${label}
+          .includeDomains=${domainFilter}
+          @value-changed=${this._valueChanged}
+          allow-custom-entity
+        ></ha-entity-picker>
         ${helpText ? html`<span class="help-text">${helpText}</span>` : ""}
       </div>
     `;
@@ -2254,7 +2237,7 @@ class PassableVehicleCardEditor extends LitElement {
           </select>
         </div>
 
-        ${this._renderEntitySelect(
+        ${this._renderEntityPicker(
           "entity",
           "Primary Vehicle Entity (Battery / Fuel Level)",
           ["sensor", "binary_sensor"],
@@ -2287,46 +2270,46 @@ class PassableVehicleCardEditor extends LitElement {
           <summary>Advanced Entity Overrides</summary>
           <div class="details-content">
             <h4 class="section-header">Status & Sensor Overrides</h4>
-            ${this._renderEntitySelect("range_entity", "Remaining Range", ["sensor"])}
-            ${this._renderEntitySelect("lock_entity", "Vehicle Lock", ["lock"])}
-            ${this._renderEntitySelect("charging_entity", "Charging Status", ["binary_sensor", "sensor"])}
-            ${this._renderEntitySelect("plug_entity", "Plug Status", ["binary_sensor", "sensor"])}
-            ${this._renderEntitySelect("odometer_entity", "Odometer", ["sensor"])}
-            ${this._renderEntitySelect("tire_pressure_entity", "Tire Pressure Warning", ["binary_sensor", "sensor"])}
-            ${this._renderEntitySelect("last_updated_entity", "Last Update Timestamp", ["sensor"])}
-            ${this._renderEntitySelect("charging_power_entity", "Charging Power (kW)", ["sensor"])}
+            ${this._renderEntityPicker("range_entity", "Remaining Range", ["sensor"])}
+            ${this._renderEntityPicker("lock_entity", "Vehicle Lock", ["lock"])}
+            ${this._renderEntityPicker("charging_entity", "Charging Status", ["binary_sensor", "sensor"])}
+            ${this._renderEntityPicker("plug_entity", "Plug Status", ["binary_sensor", "sensor"])}
+            ${this._renderEntityPicker("odometer_entity", "Odometer", ["sensor"])}
+            ${this._renderEntityPicker("tire_pressure_entity", "Tire Pressure Warning", ["binary_sensor", "sensor"])}
+            ${this._renderEntityPicker("last_updated_entity", "Last Update Timestamp", ["sensor"])}
+            ${this._renderEntityPicker("charging_power_entity", "Charging Power (kW)", ["sensor"])}
 
             <h4 class="section-header">Doors & Hatch Overrides</h4>
-            ${this._renderEntitySelect("hood_entity", "Hood Status", ["binary_sensor", "sensor"])}
-            ${this._renderEntitySelect("trunk_entity", "Trunk / Tailgate Status", ["binary_sensor", "sensor"])}
-            ${this._renderEntitySelect("door_fl_entity", "Front Left Door", ["binary_sensor", "sensor"])}
-            ${this._renderEntitySelect("door_fr_entity", "Front Right Door", ["binary_sensor", "sensor"])}
-            ${this._renderEntitySelect("door_rl_entity", "Rear Left Door", ["binary_sensor", "sensor"])}
-            ${this._renderEntitySelect("door_rr_entity", "Rear Right Door", ["binary_sensor", "sensor"])}
+            ${this._renderEntityPicker("hood_entity", "Hood Status", ["binary_sensor", "sensor"])}
+            ${this._renderEntityPicker("trunk_entity", "Trunk / Tailgate Status", ["binary_sensor", "sensor"])}
+            ${this._renderEntityPicker("door_fl_entity", "Front Left Door", ["binary_sensor", "sensor"])}
+            ${this._renderEntityPicker("door_fr_entity", "Front Right Door", ["binary_sensor", "sensor"])}
+            ${this._renderEntityPicker("door_rl_entity", "Rear Left Door", ["binary_sensor", "sensor"])}
+            ${this._renderEntityPicker("door_rr_entity", "Rear Right Door", ["binary_sensor", "sensor"])}
 
             <h4 class="section-header">Climate & Comfort Overrides</h4>
-            ${this._renderEntitySelect("hvac_status_entity", "HVAC / Air Conditioner Active", ["binary_sensor", "climate", "sensor"])}
-            ${this._renderEntitySelect("climate_temp_entity", "Climate Temperature", ["input_number", "number", "sensor"])}
-            ${this._renderEntitySelect("climate_duration_entity", "Defrost Duration", ["input_number", "number", "sensor"])}
-            ${this._renderEntitySelect("climate_defrost_entity", "Front Defrost Toggle", ["input_boolean", "switch", "binary_sensor"])}
-            ${this._renderEntitySelect("climate_heat_entity", "Rear Defrost Toggle", ["input_boolean", "switch", "binary_sensor"])}
-            ${this._renderEntitySelect("wheel_heat_entity", "Steering Wheel Heat", ["input_select", "select", "sensor"])}
-            ${this._renderEntitySelect("seat_fl_entity", "Driver Seat Heat/Cool", ["input_select", "select", "sensor"])}
-            ${this._renderEntitySelect("seat_fr_entity", "Passenger Seat Heat/Cool", ["input_select", "select", "sensor"])}
-            ${this._renderEntitySelect("seat_rl_entity", "Rear Left Seat Heat/Cool", ["input_select", "select", "sensor"])}
-            ${this._renderEntitySelect("seat_rr_entity", "Rear Right Seat Heat/Cool", ["input_select", "select", "sensor"])}
-            ${this._renderEntitySelect("profile_entity", "Driver Profile Entity", ["input_select", "select"])}
+            ${this._renderEntityPicker("hvac_status_entity", "HVAC / Air Conditioner Active", ["binary_sensor", "climate", "sensor"])}
+            ${this._renderEntityPicker("climate_temp_entity", "Climate Temperature", ["input_number", "number", "sensor"])}
+            ${this._renderEntityPicker("climate_duration_entity", "Defrost Duration", ["input_number", "number", "sensor"])}
+            ${this._renderEntityPicker("climate_defrost_entity", "Front Defrost Toggle", ["input_boolean", "switch", "binary_sensor"])}
+            ${this._renderEntityPicker("climate_heat_entity", "Rear Defrost Toggle", ["input_boolean", "switch", "binary_sensor"])}
+            ${this._renderEntityPicker("wheel_heat_entity", "Steering Wheel Heat", ["input_select", "select", "sensor"])}
+            ${this._renderEntityPicker("seat_fl_entity", "Driver Seat Heat/Cool", ["input_select", "select", "sensor"])}
+            ${this._renderEntityPicker("seat_fr_entity", "Passenger Seat Heat/Cool", ["input_select", "select", "sensor"])}
+            ${this._renderEntityPicker("seat_rl_entity", "Rear Left Seat Heat/Cool", ["input_select", "select", "sensor"])}
+            ${this._renderEntityPicker("seat_rr_entity", "Rear Right Seat Heat/Cool", ["input_select", "select", "sensor"])}
+            ${this._renderEntityPicker("profile_entity", "Driver Profile Entity", ["input_select", "select"])}
 
             <h4 class="section-header">Charging & Limits Overrides</h4>
-            ${this._renderEntitySelect("ac_limit_entity", "AC Charge Limit", ["number", "input_number", "sensor"])}
-            ${this._renderEntitySelect("dc_limit_entity", "DC Charge Limit", ["number", "input_number", "sensor"])}
-            ${this._renderEntitySelect("ac_current_entity", "AC Charging Current", ["input_select", "select"])}
-            ${this._renderEntitySelect("charge_time_entity", "Charge Time Remaining", ["sensor"])}
+            ${this._renderEntityPicker("ac_limit_entity", "AC Charge Limit", ["number", "input_number", "sensor"])}
+            ${this._renderEntityPicker("dc_limit_entity", "DC Charge Limit", ["number", "input_number", "sensor"])}
+            ${this._renderEntityPicker("ac_current_entity", "AC Charging Current", ["input_select", "select"])}
+            ${this._renderEntityPicker("charge_time_entity", "Charge Time Remaining", ["sensor"])}
 
             <h4 class="section-header">Script & Service Overrides</h4>
-            ${this._renderEntitySelect("start_climate_script", "Start Climate Script", ["script"])}
-            ${this._renderEntitySelect("stop_climate_script", "Stop Climate Script", ["script"])}
-            ${this._renderEntitySelect("save_profile_script", "Save Profile Script", ["script"])}
+            ${this._renderEntityPicker("start_climate_script", "Start Climate Script", ["script"])}
+            ${this._renderEntityPicker("stop_climate_script", "Stop Climate Script", ["script"])}
+            ${this._renderEntityPicker("save_profile_script", "Save Profile Script", ["script"])}
             <div class="option-row">
               <label class="label">Device ID (For Force Update / UVO)</label>
               <input class="input-text" .value=${this._config.device_id || ""} .configValue=${"device_id"} @input=${this._valueChanged} />
@@ -2368,6 +2351,10 @@ class PassableVehicleCardEditor extends LitElement {
         font-size: 0.9em;
         width: 100%;
         box-sizing: border-box;
+      }
+      ha-entity-picker {
+        width: 100%;
+        display: block;
       }
       .advanced-section {
         margin-top: 8px;
