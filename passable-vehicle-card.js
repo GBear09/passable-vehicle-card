@@ -1,11 +1,11 @@
 /**
  * Passable Vehicle Card
- * Version: 1.5.4
+ * Version: 1.5.5
  * GitHub: https://github.com/GBear09/passable-vehicle-card
  * Description: A customizable, universal vehicle dashboard card for Home Assistant with native ha-entity-picker visual UI editor, custom drag-and-drop image upload, and entity auto-discovery.
  */
 
-const CARD_VERSION = "1.5.4";
+const CARD_VERSION = "1.5.5";
 
 const DEFAULT_CLIMATE_PROFILES = [
   {
@@ -89,6 +89,22 @@ class PassableVehicleCard extends LitElement {
     this._countdownTimer = null;
   }
 
+  _getStorageKey(prefix) {
+    const id = (this.config && (this.config.entity || this.config.battery_entity || this.config.title)) || "vehicle";
+    return `${prefix}_${id}`;
+  }
+
+  firstUpdated(changedProps) {
+    super.firstUpdated && super.firstUpdated(changedProps);
+    try {
+      const pendingToast = sessionStorage.getItem(this._getStorageKey("pvc_toast"));
+      if (pendingToast) {
+        sessionStorage.removeItem(this._getStorageKey("pvc_toast"));
+        this._showToast(pendingToast);
+      }
+    } catch (e) {}
+  }
+
   setConfig(config) {
     this.config = {
       title: config.title !== undefined ? config.title : (config.name !== undefined ? config.name : "My Vehicle"),
@@ -100,6 +116,17 @@ class PassableVehicleCard extends LitElement {
       prefix: config.prefix || "",
       ...config,
     };
+
+    try {
+      const savedView = sessionStorage.getItem(this._getStorageKey("pvc_view"));
+      if (savedView && ["home", "controls", "charging"].includes(savedView)) {
+        this._currentView = savedView;
+      }
+      const savedProfile = sessionStorage.getItem(this._getStorageKey("pvc_profile"));
+      if (savedProfile) {
+        this._selectedProfileId = savedProfile;
+      }
+    } catch (e) {}
 
     if (Array.isArray(config.climate_profiles) && config.climate_profiles.length > 0) {
       this._climateProfiles = JSON.parse(JSON.stringify(config.climate_profiles));
@@ -145,6 +172,9 @@ class PassableVehicleCard extends LitElement {
   // --- HELPER: PROFILE SELECTION ---
   _selectProfile(profileId) {
     this._selectedProfileId = profileId;
+    try {
+      sessionStorage.setItem(this._getStorageKey("pvc_profile"), profileId);
+    } catch (e) {}
     const p = (this._climateProfiles || []).find((pr) => pr.id === profileId) || this._climateProfiles[0];
     if (p) {
       this._stagedTemp = p.temp !== undefined ? p.temp : 72;
@@ -385,6 +415,9 @@ class PassableVehicleCard extends LitElement {
     if (nextIdx !== currentIdx) {
       this._animDirection = nextIdx > currentIdx ? "slide-left" : "slide-right";
       this._currentView = views[nextIdx];
+      try {
+        sessionStorage.setItem(this._getStorageKey("pvc_view"), this._currentView);
+      } catch (e) {}
     }
   }
 
@@ -1494,6 +1527,15 @@ class PassableVehicleCard extends LitElement {
       localStorage.setItem(`pvc_profiles_${this.config.entity || "vehicle"}`, JSON.stringify(this._climateProfiles));
     } catch (e) {}
 
+    const successMsg = `Saved settings to "${profile.name}"`;
+    try {
+      sessionStorage.setItem(this._getStorageKey("pvc_view"), this._currentView);
+      if (this._selectedProfileId) {
+        sessionStorage.setItem(this._getStorageKey("pvc_profile"), this._selectedProfileId);
+      }
+      sessionStorage.setItem(this._getStorageKey("pvc_toast"), successMsg);
+    } catch (e) {}
+
     let saved = false;
     try {
       saved = await this._saveConfigToLovelace();
@@ -1502,8 +1544,11 @@ class PassableVehicleCard extends LitElement {
     }
 
     if (saved) {
-      this._showToast(`Saved settings to "${profile.name}"`);
+      this._showToast(successMsg);
     } else {
+      try {
+        sessionStorage.removeItem(this._getStorageKey("pvc_toast"));
+      } catch (e) {}
       this._showToast(`Saved "${profile.name}" (local)`);
     }
   }
