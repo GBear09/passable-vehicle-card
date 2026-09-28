@@ -1,17 +1,20 @@
 # Passable Vehicle Card
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v1.4.0-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
+[![version](https://img.shields.io/badge/version-v1.5.0-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A sleek, customizable, and universal vehicle dashboard card for Home Assistant. Designed to monitor and control any electric vehicle (EV), internal combustion engine (ICE), or hybrid vehicle with dynamic animations, modern glassmorphism styling, **Native Home Assistant `ha-entity-picker` Visual UI Editor support**, and **intelligent entity auto-discovery**.
+A sleek, customizable, and universal vehicle dashboard card for Home Assistant. Designed to monitor and control any electric vehicle (EV), internal combustion engine (ICE), or hybrid vehicle with dynamic animations, modern glassmorphism styling, **Native Home Assistant `ha-picture-upload` and `ha-entity-picker` Visual UI Editor support**, **direct vehicle climate service dispatch**, and **intelligent entity auto-discovery**.
 
 ---
 
 ## ✨ Features
 
-- 🛠️ **Native `ha-entity-picker` Visual UI Editor**: Uses Home Assistant's native entity picker component complete with search box, entity icons, area badges, and domain filtering!
-- 🔍 **Smart Auto-Discovery**: Simply provide **one single entity** (e.g. `entity: sensor.ev9_ev_battery_level`) or a `prefix` (e.g. `prefix: ev9`), and the card will automatically discover all matching sensors, binary sensors, climate entities, charge limit sliders, and scripts!
+- 🖼️ **Native Drag & Drop Image Upload**: Uses Home Assistant's native `<ha-picture-upload>` component directly in the visual editor to drag, drop, browse, or replace your vehicle images effortlessly.
+- ❄️ **Direct Climate Control & Staging**: No need for dozens of Home Assistant helper entities! Adjust temperature, defrost, steering wheel heat, and individual seat heating/cooling directly on the card. Hitting "Start Climate" compiles and dispatches commands directly to the vehicle (with automatic 20s confirmation refresh).
+- 👤 **Customizable Climate Presets**: Add, rename, and configure driver profiles (e.g. "Megan", "Myles", "Winter Warmup") right in the visual editor. Tapping the Save (floppy disk) icon on the live card saves your current settings directly as the new defaults for that profile.
+- 🛠️ **Native Visual UI Editor**: Uses Home Assistant's native entity pickers complete with search box, entity icons, area badges, and domain filtering!
+- 🔍 **Smart Auto-Discovery**: Simply provide **one single entity** (e.g. `entity: sensor.ev9_ev_battery_level`) or a `prefix` (e.g. `prefix: ev9`), and the card will automatically discover all matching sensors, binary sensors, locks, doors, and limits with strict domain filtering.
 - 🚗 **Universal Support**: Flexible configuration for EVs, Gas/ICE vehicles, and Hybrids.
 - 📱 **Interactive Views**:
   - **Home View**: Vehicle image overlay, real-time door open/closed monitor, quick lock toggle, battery/fuel circular gauge with remaining range, odometer, tire pressure, and relative update timestamp.
@@ -33,13 +36,14 @@ When editing your dashboard in Home Assistant, select **Passable Vehicle Card**.
 2. **Fuel Type** (EV, Gasoline/ICE, or Hybrid)
 3. **Primary Entity Dropdown** (filtered to sensors & binary sensors, auto-discovers all remaining entities)
 4. **Entity Prefix** (Optional)
-5. **Car Image URL**
-6. **Advanced Overrides Section**: Categorized dropdown pickers filtered specifically by entity domain:
+5. **Car Image Picker** (Drag and drop or browse files via native `<ha-picture-upload>`)
+6. **Climate Presets Manager** (Add, rename, delete profiles, and set baseline defaults for temperature, seats, steering wheel, and defrost)
+7. **Advanced Overrides Section**: Categorized dropdown pickers filtered specifically by entity domain:
    - **Status & Sensors**: Range, Lock, Charging, Plug, Odometer, Tire Pressure, Last Updated, Charging Power
    - **Doors & Trunk**: Hood, Trunk, Front Left, Front Right, Rear Left, Rear Right
-   - **Climate & Comfort**: HVAC Active, Target Temp, Defrost Duration, Front/Rear Defrost Toggles, Steering Wheel Heat, Seat Controls, Driver Profile
+   - **Climate & Comfort**: HVAC Active Status
    - **Charging & Limits**: AC Limit, DC Limit, AC Current, Charge Time Remaining
-   - **Scripts & Services**: Start Climate Script, Stop Climate Script, Save Profile Script
+   - **Integration & Services**: Device ID, Custom Start/Stop Climate Services
 
 ---
 
@@ -60,7 +64,7 @@ When editing your dashboard in Home Assistant, select **Passable Vehicle Card**.
 2. Copy `passable-vehicle-card.js` to your `www/` directory (`/config/www/passable-vehicle-card.js`).
 3. In Home Assistant, go to **Settings** -> **Dashboards** -> **Three Dots (Top Right)** -> **Resources**.
 4. Add resource:
-   - **URL**: `/local/passable-vehicle-card.js?v=1.4.0`
+   - **URL**: `/local/passable-vehicle-card.js?v=1.5.0`
    - **Resource Type**: `JavaScript Module`
 
 ---

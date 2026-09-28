@@ -1,11 +1,36 @@
 /**
  * Passable Vehicle Card
- * Version: 1.4.0
+ * Version: 1.5.0
  * GitHub: https://github.com/GBear09/passable-vehicle-card
  * Description: A customizable, universal vehicle dashboard card for Home Assistant with native ha-entity-picker visual UI editor and entity auto-discovery.
  */
 
-const CARD_VERSION = "1.4.0";
+const CARD_VERSION = "1.5.0";
+
+const DEFAULT_CLIMATE_PROFILES = [
+  {
+    id: "driver_1",
+    name: "Driver 1",
+    icon: "mdi:account",
+    temp: 72,
+    duration: 15,
+    defrost: false,
+    heating: 0,
+    steering_wheel: 0,
+    seats: { fl: 0, fr: 0, rl: 0, rr: 0 },
+  },
+  {
+    id: "driver_2",
+    name: "Driver 2",
+    icon: "mdi:account",
+    temp: 70,
+    duration: 15,
+    defrost: false,
+    heating: 0,
+    steering_wheel: 0,
+    seats: { fl: 0, fr: 0, rl: 0, rr: 0 },
+  },
+];
 
 console.info(
   `%c PASSABLE VEHICLE CARD %c v${CARD_VERSION} `,
@@ -36,6 +61,13 @@ class PassableVehicleCard extends LitElement {
       _currentView: { type: String }, // 'home', 'controls', 'charging'
       _animDirection: { type: String },
       _toastMsg: { type: String },
+      _selectedProfileId: { type: String },
+      _stagedTemp: { type: Number },
+      _stagedDuration: { type: Number },
+      _stagedDefrost: { type: Boolean },
+      _stagedHeating: { type: Number },
+      _stagedWheel: { type: Number },
+      _stagedSeats: { type: Object },
     };
   }
 
@@ -46,6 +78,15 @@ class PassableVehicleCard extends LitElement {
     this._toastMsg = null;
     this._touchStartX = null;
     this._touchStartY = null;
+    this._climateProfiles = DEFAULT_CLIMATE_PROFILES;
+    this._selectedProfileId = "driver_1";
+    this._stagedTemp = 72;
+    this._stagedDuration = 15;
+    this._stagedDefrost = false;
+    this._stagedHeating = 0;
+    this._stagedWheel = 0;
+    this._stagedSeats = { fl: 0, fr: 0, rl: 0, rr: 0 };
+    this._countdownTimer = null;
   }
 
   setConfig(config) {
@@ -59,6 +100,16 @@ class PassableVehicleCard extends LitElement {
       prefix: config.prefix || "",
       ...config,
     };
+
+    if (Array.isArray(config.climate_profiles) && config.climate_profiles.length > 0) {
+      this._climateProfiles = config.climate_profiles;
+    } else {
+      this._climateProfiles = DEFAULT_CLIMATE_PROFILES;
+    }
+
+    if (!this._selectedProfileId || !this._climateProfiles.some((p) => p.id === this._selectedProfileId)) {
+      this._selectProfile(this._climateProfiles[0].id);
+    }
   }
 
   getCardSize() {
@@ -78,7 +129,27 @@ class PassableVehicleCard extends LitElement {
 
   // --- HELPER: GET DEVICE ID ---
   _getDeviceId() {
-    return this.config.device_id || "";
+    if (this.config.device_id) return this.config.device_id;
+    const primary = this.config.entity || this.config.battery_entity;
+    if (primary && this.hass?.entities?.[primary]?.device_id) {
+      return this.hass.entities[primary].device_id;
+    }
+    return "";
+  }
+
+  // --- HELPER: PROFILE SELECTION ---
+  _selectProfile(profileId) {
+    this._selectedProfileId = profileId;
+    const p = (this._climateProfiles || []).find((pr) => pr.id === profileId) || this._climateProfiles[0];
+    if (p) {
+      this._stagedTemp = p.temp !== undefined ? p.temp : 72;
+      this._stagedDuration = p.duration !== undefined ? p.duration : 15;
+      this._stagedDefrost = !!p.defrost;
+      this._stagedHeating = p.heating !== undefined ? p.heating : 0;
+      this._stagedWheel = p.steering_wheel !== undefined ? p.steering_wheel : 0;
+      this._stagedSeats = p.seats ? { ...p.seats } : { fl: 0, fr: 0, rl: 0, rr: 0 };
+      this.requestUpdate();
+    }
   }
 
   // --- HELPER: AUTO DISCOVERY SYSTEM ---
@@ -90,7 +161,12 @@ class PassableVehicleCard extends LitElement {
 
     // Determine prefix candidates
     const prefixes = new Set();
-    if (cfg.prefix) prefixes.add(cfg.prefix.toLowerCase());
+    if (cfg.prefix) {
+      const p = cfg.prefix.toLowerCase();
+      prefixes.add(p);
+      prefixes.add(`kia_${p}`);
+      prefixes.add(`${p}_ev`);
+    }
 
     const primaryEntity = cfg.entity || cfg.battery_entity || cfg.range_entity || cfg.lock_entity;
     if (primaryEntity) {
@@ -98,46 +174,99 @@ class PassableVehicleCard extends LitElement {
       const parts = objectId.split("_");
       if (parts.length > 0) {
         prefixes.add(parts[0]); // e.g. "ev9"
-        if (parts.length > 1) prefixes.add(`${parts[0]}_${parts[1]}`); // e.g. "ev9_ev" or "kia_ev9"
+        prefixes.add(`kia_${parts[0]}`); // e.g. "kia_ev9"
+        if (parts.length > 1) {
+          prefixes.add(`${parts[0]}_${parts[1]}`); // e.g. "ev9_ev"
+        }
       }
     }
 
     const entityPatterns = {
-      battery: ["battery_level", "ev_battery_level", "battery", "soc", "fuel_level", "fuel_percent"],
-      range: ["ev_range", "range", "battery_range", "fuel_range", "remaining_range"],
-      charging: ["ev_battery_charge", "charging_status", "is_charging", "battery_charging", "charging"],
-      plug: ["ev_battery_plug", "plugged_in", "charge_port", "plug_status", "plug"],
-      lock: ["door_lock", "lock", "vehicle_lock", "doors_locked"],
-      odometer: ["odometer", "total_distance", "mileage"],
-      last_updated: ["last_updated_at", "last_updated", "last_seen", "status_updated"],
-      charging_power: ["ev_charging_power", "charging_power", "charger_power"],
-      tire_pressure: ["tire_pressure_all", "tire_pressure", "tpms", "tire_pressure_warning"],
-      hood: ["hood", "hood_status", "engine_hood"],
-      trunk: ["trunk", "trunk_status", "tailgate", "boot"],
-      door_fl: ["front_left_door", "door_front_left", "door_fl", "driver_door"],
-      door_fr: ["front_right_door", "door_front_right", "door_fr", "passenger_door"],
-      door_rl: ["back_left_door", "rear_left_door", "door_back_left", "door_rear_left", "door_rl"],
-      door_rr: ["back_right_door", "rear_right_door", "door_back_right", "door_rear_right", "door_rr"],
-      hvac_active: ["air_conditioner", "hvac", "climate", "climate_status", "air_conditioning"],
-      climate_temp: ["climate_temperature", "target_temperature", "hvac_temp"],
-      climate_duration: ["climate_duration", "defrost_duration", "hvac_duration"],
-      climate_defrost: ["climate_defrost", "defrost_front", "front_defrost"],
-      climate_heat: ["climate_heating", "defrost_rear", "rear_defrost"],
-      wheel_heat: ["steering_wheel_heat", "steering_wheel_heater", "heated_steering_wheel"],
-      seat_fl: ["fl_seat", "driver_seat", "front_left_seat"],
-      seat_fr: ["fr_seat", "passenger_seat", "front_right_seat"],
-      seat_rl: ["rl_seat", "rear_left_seat", "back_left_seat"],
-      seat_rr: ["rr_seat", "rear_right_seat", "back_right_seat"],
-      ac_limit: ["ac_charging_limit", "ac_limit", "charge_limit_ac"],
-      dc_limit: ["dc_charging_limit", "dc_limit", "charge_limit_dc"],
-      ac_current: ["ac_charging_current", "ac_current"],
-      charge_time: ["estimated_charge_duration", "charge_time_remaining", "time_to_full"],
-      profile: ["profile", "driver_profile"],
+      battery: {
+        domains: ["sensor"],
+        patterns: ["ev_battery_level", "battery_level", "battery", "soc", "fuel_level", "fuel_percent"],
+      },
+      range: {
+        domains: ["sensor"],
+        patterns: ["ev_range", "range", "battery_range", "fuel_range", "remaining_range"],
+      },
+      charging: {
+        domains: ["binary_sensor", "sensor"],
+        patterns: ["ev_battery_charge", "charging_status", "is_charging", "battery_charging", "charging"],
+      },
+      plug: {
+        domains: ["binary_sensor", "sensor"],
+        patterns: ["ev_battery_plug", "plugged_in", "charge_port", "plug_status", "plug"],
+      },
+      lock: {
+        domains: ["lock"],
+        patterns: ["door_lock", "lock", "vehicle_lock"],
+      },
+      odometer: {
+        domains: ["sensor"],
+        patterns: ["odometer", "total_distance", "mileage"],
+      },
+      last_updated: {
+        domains: ["sensor"],
+        patterns: ["last_updated_at", "last_updated", "last_seen", "status_updated"],
+      },
+      charging_power: {
+        domains: ["sensor"],
+        patterns: ["ev_charging_power", "charging_power", "charger_power"],
+      },
+      tire_pressure: {
+        domains: ["binary_sensor", "sensor"],
+        patterns: ["tire_pressure_all", "tire_pressure", "tpms", "tire_pressure_warning"],
+      },
+      hood: {
+        domains: ["binary_sensor"],
+        patterns: ["hood", "hood_status", "engine_hood"],
+      },
+      trunk: {
+        domains: ["binary_sensor"],
+        patterns: ["trunk", "trunk_status", "tailgate", "boot"],
+      },
+      door_fl: {
+        domains: ["binary_sensor"],
+        patterns: ["front_left_door", "door_front_left", "door_fl", "driver_door"],
+      },
+      door_fr: {
+        domains: ["binary_sensor"],
+        patterns: ["front_right_door", "door_front_right", "door_fr", "passenger_door"],
+      },
+      door_rl: {
+        domains: ["binary_sensor"],
+        patterns: ["back_left_door", "rear_left_door", "door_back_left", "door_rear_left", "door_rl"],
+      },
+      door_rr: {
+        domains: ["binary_sensor"],
+        patterns: ["back_right_door", "rear_right_door", "door_back_right", "door_rear_right", "door_rr"],
+      },
+      hvac_active: {
+        domains: ["binary_sensor", "climate", "switch", "sensor"],
+        patterns: ["air_conditioner", "hvac", "climate", "climate_status", "air_conditioning"],
+      },
+      ac_limit: {
+        domains: ["number"],
+        patterns: ["ac_charging_limit", "ac_limit", "charge_limit_ac"],
+      },
+      dc_limit: {
+        domains: ["number"],
+        patterns: ["dc_charging_limit", "dc_limit", "charge_limit_dc"],
+      },
+      ac_current: {
+        domains: ["input_select", "select"],
+        patterns: ["ac_charging_current", "ac_current"],
+      },
+      charge_time: {
+        domains: ["sensor"],
+        patterns: ["estimated_charge_duration", "charge_time_remaining", "time_to_full"],
+      },
     };
 
     const discovered = {};
 
-    for (const [key, patterns] of Object.entries(entityPatterns)) {
+    for (const [key, def] of Object.entries(entityPatterns)) {
       const configKey = key === "battery" ? "entity" : `${key}_entity`;
       if (cfg[configKey]) {
         discovered[key] = cfg[configKey];
@@ -147,17 +276,24 @@ class PassableVehicleCard extends LitElement {
         discovered[key] = cfg.battery_entity;
         continue;
       }
+      if (key === "hvac_active" && (cfg.hvac_status_entity || cfg.hvac_active_entity)) {
+        discovered[key] = cfg.hvac_status_entity || cfg.hvac_active_entity;
+        continue;
+      }
 
+      const { domains, patterns } = def;
       let found = null;
 
       for (const pattern of patterns) {
         for (const prefix of prefixes) {
           found = allStates.find((id) => {
-            const objId = id.split(".")[1];
+            const [domain, objId] = id.split(".");
+            if (domains && !domains.includes(domain)) return false;
             return (
               objId === `${prefix}_${pattern}` ||
               objId === `${prefix}_ev_${pattern}` ||
               objId === `${prefix}_kia_${pattern}` ||
+              objId === `kia_${prefix}_${pattern}` ||
               objId.includes(`${prefix}_${pattern}`) ||
               (objId.includes(pattern) && (objId.includes(prefix) || prefixes.size === 0))
             );
@@ -167,7 +303,8 @@ class PassableVehicleCard extends LitElement {
         if (found) break;
 
         found = allStates.find((id) => {
-          const objId = id.split(".")[1];
+          const [domain, objId] = id.split(".");
+          if (domains && !domains.includes(domain)) return false;
           return objId === pattern || objId.endsWith(`_${pattern}`);
         });
         if (found) break;
@@ -178,25 +315,7 @@ class PassableVehicleCard extends LitElement {
       }
     }
 
-    discovered.start_climate_script = cfg.start_climate_script || this._findScript(prefixes, "start_climate");
-    discovered.stop_climate_script = cfg.stop_climate_script || this._findScript(prefixes, "stop_climate");
-    discovered.save_profile_script = cfg.save_profile_script || this._findScript(prefixes, "save_profile");
-
     return discovered;
-  }
-
-  _findScript(prefixes, scriptName) {
-    if (!this.hass || !this.hass.states) return "";
-    const allStates = Object.keys(this.hass.states);
-    for (const prefix of prefixes) {
-      const candidate = allStates.find(
-        (id) =>
-          id.startsWith("script.") &&
-          (id.includes(`${prefix}_${scriptName}`) || id.includes(`${scriptName}_${prefix}`))
-      );
-      if (candidate) return candidate;
-    }
-    return allStates.find((id) => id.startsWith("script.") && id.includes(scriptName)) || "";
   }
 
   // --- HELPER: RELATIVE TIME ---
@@ -650,103 +769,61 @@ class PassableVehicleCard extends LitElement {
 
   // --- VIEW: CONTROLS ---
   _renderControlsView(entities) {
-    const profileState = entities.profile ? this.hass.states[entities.profile] : null;
-    const profileOptions = profileState?.attributes?.options || ["Driver 1", "Driver 2"];
+    const profiles = this._climateProfiles || DEFAULT_CLIMATE_PROFILES;
 
     return html`
       <div class="view-container controls ${this._animDirection}">
-        ${entities.profile
-          ? html`
-              <div class="controls-header">
-                <div class="profile-selector">
-                  ${profileOptions.map((opt) => this._renderProfileChip(entities.profile, opt))}
+        <div class="controls-header">
+          <div class="profile-selector">
+            ${profiles.map(
+              (p) => html`
+                <div
+                  class="profile-chip ${p.id === this._selectedProfileId ? "active" : ""}"
+                  @click=${() => this._selectProfile(p.id)}
+                >
+                  <ha-icon icon="${p.icon || "mdi:account"}"></ha-icon>
+                  <span>${p.name}</span>
                 </div>
-              </div>
-              <div class="divider"></div>
-            `
-          : ""}
+              `
+            )}
+          </div>
+        </div>
+        <div class="divider"></div>
 
         <div class="interior-grid tight-gap">
           <div class="interior-row three-cols">
             <div class="interior-col">
-              ${entities.wheel_heat
-                ? this._renderSimpleWidget(
-                    entities.wheel_heat,
-                    "mdi:steering",
-                    "Wheel",
-                    true
-                  )
-                : ""}
+              ${this._renderStagedWheel("Wheel")}
             </div>
             <div class="interior-col">
-              ${entities.climate_defrost
-                ? this._renderSimpleWidget(
-                    entities.climate_defrost,
-                    "mdi:car-defrost-front",
-                    "Front"
-                  )
-                : ""}
+              ${this._renderStagedDefrost("Front")}
             </div>
             <div class="interior-col">
-              ${entities.climate_heat
-                ? this._renderSimpleWidget(
-                    entities.climate_heat,
-                    "mdi:car-defrost-rear",
-                    "Rear"
-                  )
-                : ""}
+              ${this._renderStagedHeating("Rear")}
             </div>
           </div>
 
           <div class="interior-row three-cols">
             <div class="interior-col">
-              ${entities.seat_fl
-                ? this._renderSeat(entities.seat_fl, "Driver")
-                : ""}
+              ${this._renderStagedSeat("fl", "Driver")}
             </div>
             <div class="interior-col">
-              ${entities.climate_temp
-                ? this._renderGaugeControl(
-                    entities.climate_temp,
-                    "Temp",
-                    "°F",
-                    62,
-                    82,
-                    1,
-                    true
-                  )
-                : ""}
+              ${this._renderStagedTempGauge("Temp", "°F", 60, 85)}
             </div>
             <div class="interior-col">
-              ${entities.seat_fr
-                ? this._renderSeat(entities.seat_fr, "Pass.")
-                : ""}
+              ${this._renderStagedSeat("fr", "Pass.")}
             </div>
           </div>
 
           <div class="interior-row three-cols">
             <div class="interior-col">
-              ${entities.seat_rl
-                ? this._renderSeat(entities.seat_rl, "Rear L")
-                : ""}
+              ${this._renderStagedSeat("rl", "Rear L")}
             </div>
             <div class="interior-col">
-              ${entities.climate_duration
-                ? this._renderGaugeControl(
-                    entities.climate_duration,
-                    "Duration",
-                    "min",
-                    5,
-                    30,
-                    5,
-                    false
-                  )
-                : ""}
+              ${this._renderStagedDurationGauge("Duration", "min", 5, 30, 5)}
             </div>
             <div class="interior-col">
-              ${entities.seat_rr
-                ? this._renderSeat(entities.seat_rr, "Rear R")
-                : ""}
+              ${this._renderStagedSeat("rr", "Rear R")}
             </div>
           </div>
         </div>
@@ -766,16 +843,236 @@ class PassableVehicleCard extends LitElement {
           >
             <ha-icon icon="mdi:stop"></ha-icon> Stop
           </button>
-          ${entities.save_profile_script || entities.profile
-            ? html`
-                <button
-                  class="action-btn save"
-                  @click=${() => this._handleSaveProfile(entities)}
-                >
-                  <ha-icon icon="mdi:content-save"></ha-icon>
-                </button>
-              `
-            : ""}
+          <button
+            class="action-btn save"
+            title="Save current settings to active profile"
+            @click=${() => this._saveCurrentToProfile()}
+          >
+            <ha-icon icon="mdi:content-save"></ha-icon>
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderStagedWheel(label = "Wheel") {
+    const level = this._stagedWheel || 0;
+    const isActive = level > 0;
+    const dots = [];
+    for (let i = 0; i < 3; i++) {
+      dots.push(
+        html`<div class="dot ${i < (level === 2 ? 3 : level) ? "dot-active-heat" : ""}"></div>`
+      );
+    }
+    const stateText = level === 2 ? "HIGH" : level === 1 ? "LOW" : "OFF";
+
+    return html`
+      <div
+        class="seat-widget small-widget ${isActive ? "heat" : "off"}"
+        @click=${() => this._cycleWheel()}
+      >
+        <ha-icon icon="mdi:steering"></ha-icon>
+        <span class="seat-label">${label}</span>
+        <div class="dots-container">${dots}</div>
+        <span class="seat-state">${stateText}</span>
+      </div>
+    `;
+  }
+
+  _cycleWheel() {
+    let next = 0;
+    if (this._stagedWheel === 0) next = 1;
+    else if (this._stagedWheel === 1) next = 2;
+    else next = 0;
+    this._stagedWheel = next;
+    this.requestUpdate();
+  }
+
+  _renderStagedDefrost(label = "Front") {
+    const isActive = !!this._stagedDefrost;
+    return html`
+      <div
+        class="seat-widget small-widget ${isActive ? "heat" : "off"}"
+        @click=${() => {
+          this._stagedDefrost = !this._stagedDefrost;
+          this.requestUpdate();
+        }}
+      >
+        <ha-icon icon="mdi:car-defrost-front"></ha-icon>
+        <span class="seat-label">${label}</span>
+        <div class="dots-container"><div class="dot-spacer"></div></div>
+        <span class="seat-state">${isActive ? "ON" : "OFF"}</span>
+      </div>
+    `;
+  }
+
+  _renderStagedHeating(label = "Rear") {
+    const isActive = (this._stagedHeating || 0) > 0;
+    return html`
+      <div
+        class="seat-widget small-widget ${isActive ? "heat" : "off"}"
+        @click=${() => {
+          this._stagedHeating = isActive ? 0 : 4;
+          this.requestUpdate();
+        }}
+      >
+        <ha-icon icon="mdi:car-defrost-rear"></ha-icon>
+        <span class="seat-label">${label}</span>
+        <div class="dots-container"><div class="dot-spacer"></div></div>
+        <span class="seat-state">${isActive ? "ON" : "OFF"}</span>
+      </div>
+    `;
+  }
+
+  _renderStagedSeat(seatKey, label) {
+    const level = (this._stagedSeats && this._stagedSeats[seatKey]) || 0;
+    let mode = "off";
+    let dotCount = 0;
+    let stateText = "OFF";
+
+    if (level >= 3 && level <= 5) {
+      mode = "cool";
+      dotCount = level - 2;
+      stateText = dotCount === 3 ? "COOL HIGH" : dotCount === 2 ? "COOL MID" : "COOL LOW";
+    } else if (level >= 6 && level <= 8) {
+      mode = "heat";
+      dotCount = level - 5;
+      stateText = dotCount === 3 ? "HEAT HIGH" : dotCount === 2 ? "HEAT MID" : "HEAT LOW";
+    }
+
+    const dots = [];
+    for (let i = 0; i < 3; i++) {
+      const dotClass =
+        i < dotCount
+          ? mode === "heat"
+            ? "dot-active-heat"
+            : "dot-active-cool"
+          : "";
+      dots.push(html`<div class="dot ${dotClass}"></div>`);
+    }
+
+    return html`
+      <div
+        class="seat-widget ${mode}"
+        @click=${() => this._cycleSeat(seatKey)}
+      >
+        <ha-icon icon="mdi:car-seat-heater"></ha-icon>
+        <span class="seat-label">${label}</span>
+        <div class="dots-container">${dots}</div>
+        <span class="seat-state">${stateText}</span>
+      </div>
+    `;
+  }
+
+  _cycleSeat(seatKey) {
+    const levels = [0, 6, 7, 8, 3, 4, 5];
+    const current = (this._stagedSeats && this._stagedSeats[seatKey]) || 0;
+    const idx = levels.indexOf(current);
+    const next = levels[(idx + 1) % levels.length];
+    this._stagedSeats = {
+      ...(this._stagedSeats || {}),
+      [seatKey]: next,
+    };
+    this.requestUpdate();
+  }
+
+  _renderStagedTempGauge(label = "Temp", unit = "°F", min = 60, max = 85) {
+    const val = this._stagedTemp || 72;
+    const radius = 34;
+    const circ = 2 * Math.PI * radius;
+    const ratio = Math.max(0, Math.min(1, (val - min) / (max - min)));
+    const offset = circ - ratio * circ;
+    const color = this._getTempColor(val);
+
+    return html`
+      <div class="gauge-control" style="width: 80px; height: 80px;">
+        <div
+          class="gauge-btn minus"
+          @click=${() => {
+            this._stagedTemp = Math.max(min, val - 1);
+            this.requestUpdate();
+          }}
+        >
+          <ha-icon icon="mdi:minus"></ha-icon>
+        </div>
+
+        <div class="gauge-viz">
+          <svg viewBox="0 0 80 80" class="mini-ring">
+            <circle cx="40" cy="40" r="${radius}" class="ring-bg" />
+            <circle
+              cx="40"
+              cy="40"
+              r="${radius}"
+              class="ring-progress"
+              style="stroke: ${color}; stroke-dasharray: ${circ}; stroke-dashoffset: ${offset}"
+            />
+          </svg>
+          <div class="gauge-text">
+            <span class="gauge-val" style="color: ${color}">${Math.round(val)}</span>
+            <span class="gauge-unit">${unit}</span>
+          </div>
+          <div class="gauge-label">${label}</div>
+        </div>
+
+        <div
+          class="gauge-btn plus"
+          @click=${() => {
+            this._stagedTemp = Math.min(max, val + 1);
+            this.requestUpdate();
+          }}
+        >
+          <ha-icon icon="mdi:plus"></ha-icon>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderStagedDurationGauge(label = "Duration", unit = "min", min = 5, max = 30, step = 5) {
+    const val = this._stagedDuration || 15;
+    const radius = 34;
+    const circ = 2 * Math.PI * radius;
+    const ratio = Math.max(0, Math.min(1, (val - min) / (max - min)));
+    const offset = circ - ratio * circ;
+    const color = "var(--primary-color)";
+
+    return html`
+      <div class="gauge-control" style="width: 80px; height: 80px;">
+        <div
+          class="gauge-btn minus"
+          @click=${() => {
+            this._stagedDuration = Math.max(min, val - step);
+            this.requestUpdate();
+          }}
+        >
+          <ha-icon icon="mdi:minus"></ha-icon>
+        </div>
+
+        <div class="gauge-viz">
+          <svg viewBox="0 0 80 80" class="mini-ring">
+            <circle cx="40" cy="40" r="${radius}" class="ring-bg" />
+            <circle
+              cx="40"
+              cy="40"
+              r="${radius}"
+              class="ring-progress"
+              style="stroke: ${color}; stroke-dasharray: ${circ}; stroke-dashoffset: ${offset}"
+            />
+          </svg>
+          <div class="gauge-text">
+            <span class="gauge-val" style="color: ${color}">${Math.round(val)}</span>
+            <span class="gauge-unit">${unit}</span>
+          </div>
+          <div class="gauge-label">${label}</div>
+        </div>
+
+        <div
+          class="gauge-btn plus"
+          @click=${() => {
+            this._stagedDuration = Math.min(max, val + step);
+            this.requestUpdate();
+          }}
+        >
+          <ha-icon icon="mdi:plus"></ha-icon>
         </div>
       </div>
     `;
@@ -1156,42 +1453,194 @@ class PassableVehicleCard extends LitElement {
     this._showToast(`Setting Limit to ${value}%`);
   }
 
-  _handleClimateStart(entities) {
-    const targetScript = this.config.start_climate_script || entities.start_climate_script;
-    if (targetScript) {
-      const [domain, service] = targetScript.split(".");
-      if (domain === "script") {
-        this.hass.callService("script", "turn_on", { entity_id: targetScript });
-      } else {
-        this.hass.callService(domain, service, {});
+  async _handleClimateStart(entities) {
+    const deviceId = this._getDeviceId();
+
+    if (this.config.start_climate_service || this.config.start_climate_script) {
+      const target = this.config.start_climate_service || this.config.start_climate_script;
+      const [domain, service] = target.split(".");
+      await this.hass.callService(domain, service, {
+        device_id: deviceId || undefined,
+        temperature: this._stagedTemp,
+        duration: this._stagedDuration,
+        climate: true,
+        defrost: this._stagedDefrost,
+        heating: this._stagedHeating,
+        steering_wheel: this._stagedWheel,
+        flseat: this._stagedSeats.fl,
+        frseat: this._stagedSeats.fr,
+        rlseat: this._stagedSeats.rl,
+        rrseat: this._stagedSeats.rr,
+      });
+      this._showToast("Climate Started. Confirming in 20s...");
+      this._startPostClimateCountdown();
+      return;
+    }
+
+    if (this.hass.services?.kia_uvo?.start_climate) {
+      try {
+        await this.hass.callService("kia_uvo", "start_climate", {
+          device_id: deviceId || undefined,
+          temperature: this._stagedTemp,
+          duration: this._stagedDuration,
+          climate: true,
+          defrost: this._stagedDefrost,
+          heating: this._stagedHeating,
+          steering_wheel: this._stagedWheel,
+          flseat: this._stagedSeats.fl,
+          frseat: this._stagedSeats.fr,
+          rlseat: this._stagedSeats.rl,
+          rrseat: this._stagedSeats.rr,
+        });
+        this._showToast("Climate Started. Confirming in 20s...");
+        this._startPostClimateCountdown();
+      } catch (err) {
+        this._showToast("Error starting climate: " + (err.message || err));
       }
+      return;
+    }
+
+    if (entities.hvac_active && entities.hvac_active.startsWith("climate.")) {
+      await this.hass.callService("climate", "set_temperature", {
+        entity_id: entities.hvac_active,
+        temperature: this._stagedTemp,
+      });
+      await this.hass.callService("climate", "set_hvac_mode", {
+        entity_id: entities.hvac_active,
+        hvac_mode: "heat_cool",
+      });
       this._showToast("Climate Started");
-    } else {
-      this._showToast("No climate start script found");
+      return;
     }
+
+    this._showToast("No climate service configured");
   }
 
-  _handleClimateStop(entities) {
-    const targetScript = this.config.stop_climate_script || entities.stop_climate_script;
-    if (targetScript) {
-      const [domain, service] = targetScript.split(".");
-      if (domain === "script") {
-        this.hass.callService("script", "turn_on", { entity_id: targetScript });
-      } else {
-        this.hass.callService(domain, service, {});
-      }
+  async _handleClimateStop(entities) {
+    const deviceId = this._getDeviceId();
+    if (this.config.stop_climate_service || this.config.stop_climate_script) {
+      const target = this.config.stop_climate_service || this.config.stop_climate_script;
+      const [domain, service] = target.split(".");
+      await this.hass.callService(domain, service, deviceId ? { device_id: deviceId } : {});
+      this._showToast("Climate Stopped. Confirming in 20s...");
+      this._startPostClimateCountdown();
+      return;
+    }
+
+    if (this.hass.services?.kia_uvo?.stop_climate) {
+      await this.hass.callService("kia_uvo", "stop_climate", deviceId ? { device_id: deviceId } : {});
+      this._showToast("Climate Stopped. Confirming in 20s...");
+      this._startPostClimateCountdown();
+      return;
+    }
+
+    if (entities.hvac_active && entities.hvac_active.startsWith("climate.")) {
+      await this.hass.callService("climate", "set_hvac_mode", {
+        entity_id: entities.hvac_active,
+        hvac_mode: "off",
+      });
       this._showToast("Climate Stopped");
+      return;
+    }
+
+    this._showToast("No climate stop service configured");
+  }
+
+  async _saveCurrentToProfile() {
+    const profile = (this._climateProfiles || []).find((p) => p.id === this._selectedProfileId);
+    if (!profile) return;
+
+    profile.temp = this._stagedTemp;
+    profile.duration = this._stagedDuration;
+    profile.defrost = this._stagedDefrost;
+    profile.heating = this._stagedHeating;
+    profile.steering_wheel = this._stagedWheel;
+    profile.seats = { ...(this._stagedSeats || { fl: 0, fr: 0, rl: 0, rr: 0 }) };
+
+    let saved = false;
+    try {
+      saved = await this._saveConfigToLovelace();
+    } catch (e) {
+      console.warn("Could not save to Lovelace dashboard config:", e);
+    }
+
+    if (saved) {
+      this._showToast(`Saved settings to "${profile.name}"`);
     } else {
-      this._showToast("No climate stop script found");
+      try {
+        localStorage.setItem(`pvc_profiles_${this.config.entity || "vehicle"}`, JSON.stringify(this._climateProfiles));
+      } catch (e) {}
+      this._showToast(`Saved "${profile.name}" (local)`);
     }
   }
 
-  _handleSaveProfile(entities) {
-    const targetScript = this.config.save_profile_script || entities.save_profile_script;
-    if (targetScript) {
-      this.hass.callService("script", "turn_on", { entity_id: targetScript });
-      this._showToast("Settings Saved");
+  async _saveConfigToLovelace() {
+    if (!this.hass || !this.hass.callWS) return false;
+
+    const pathParts = window.location.pathname.split("/").filter(Boolean);
+    let urlPath = null;
+    if (pathParts.length > 0 && pathParts[0].startsWith("lovelace-")) {
+      urlPath = pathParts[0];
     }
+
+    const dashboardConfig = await this.hass.callWS({
+      type: "lovelace/config",
+      url_path: urlPath,
+    });
+    if (!dashboardConfig || !dashboardConfig.views) return false;
+
+    let cardFound = false;
+    const updateCard = (card) => {
+      if (cardFound) return card;
+      const isMatch =
+        card.type === "custom:passable-vehicle-card" &&
+        (card.entity === this.config.entity ||
+          card.battery_entity === this.config.battery_entity ||
+          card.title === this.config.title);
+
+      if (isMatch) {
+        cardFound = true;
+        return {
+          ...card,
+          climate_profiles: JSON.parse(JSON.stringify(this._climateProfiles)),
+        };
+      }
+      if (card.cards && Array.isArray(card.cards)) {
+        return { ...card, cards: card.cards.map(updateCard) };
+      }
+      return card;
+    };
+
+    const newViews = dashboardConfig.views.map((view) => {
+      if (!view.cards) return view;
+      return {
+        ...view,
+        cards: view.cards.map(updateCard),
+      };
+    });
+
+    if (!cardFound) return false;
+
+    await this.hass.callWS({
+      type: "lovelace/config/save",
+      url_path: urlPath,
+      config: { ...dashboardConfig, views: newViews },
+    });
+
+    return true;
+  }
+
+  _startPostClimateCountdown() {
+    let seconds = 20;
+    if (this._countdownTimer) clearInterval(this._countdownTimer);
+    this._countdownTimer = setInterval(() => {
+      seconds -= 1;
+      if (seconds <= 0) {
+        clearInterval(this._countdownTimer);
+        this._countdownTimer = null;
+        this._forceUpdate();
+      }
+    }, 1000);
   }
 
   _forceUpdate() {
@@ -1203,7 +1652,7 @@ class PassableVehicleCard extends LitElement {
     } else {
       if (this.hass.services?.kia_uvo?.force_update) {
         this.hass.callService("kia_uvo", "force_update", this._getDeviceId() ? { device_id: this._getDeviceId() } : {});
-        this._showToast("Force Update Sent");
+        this._showToast("Vehicle Status Refreshed");
       } else {
         this._showToast("Refreshing Status");
       }
@@ -2177,6 +2626,21 @@ class PassableVehicleCardEditor extends LitElement {
     );
   }
 
+  _imageChanged(ev) {
+    if (!this._config || !this.hass) return;
+    const value = ev.detail && ev.detail.value !== undefined ? ev.detail.value : null;
+    let newConfig = { ...this._config };
+    if (!value) {
+      delete newConfig.image;
+    } else {
+      newConfig.image = value;
+    }
+    this._config = newConfig;
+    this.dispatchEvent(
+      new CustomEvent("config-changed", { detail: { config: this._config } })
+    );
+  }
+
   _renderEntityPicker(configValue, label, domainFilter = null, helpText = "") {
     const currentValue = this._config[configValue] || "";
 
@@ -2196,8 +2660,88 @@ class PassableVehicleCardEditor extends LitElement {
     `;
   }
 
+  _addProfile() {
+    const profiles = [
+      ...(this._config.climate_profiles || DEFAULT_CLIMATE_PROFILES),
+    ];
+    const num = profiles.length + 1;
+    const newProfile = {
+      id: `profile_${Date.now()}`,
+      name: `Driver ${num}`,
+      icon: "mdi:account",
+      temp: 72,
+      duration: 15,
+      defrost: false,
+      heating: 0,
+      steering_wheel: 0,
+      seats: { fl: 0, fr: 0, rl: 0, rr: 0 },
+    };
+    profiles.push(newProfile);
+    this._updateProfiles(profiles);
+  }
+
+  _deleteProfile(index) {
+    const profiles = [
+      ...(this._config.climate_profiles || DEFAULT_CLIMATE_PROFILES),
+    ];
+    if (profiles.length <= 1) return;
+    profiles.splice(index, 1);
+    this._updateProfiles(profiles);
+  }
+
+  _updateProfileField(index, field, value) {
+    const profiles = [
+      ...(this._config.climate_profiles || DEFAULT_CLIMATE_PROFILES),
+    ];
+    if (!profiles[index]) return;
+
+    if (field.startsWith("seats.")) {
+      const seatKey = field.split(".")[1];
+      profiles[index] = {
+        ...profiles[index],
+        seats: {
+          ...(profiles[index].seats || { fl: 0, fr: 0, rl: 0, rr: 0 }),
+          [seatKey]: parseInt(value) || 0,
+        },
+      };
+    } else if (
+      field === "temp" ||
+      field === "duration" ||
+      field === "steering_wheel" ||
+      field === "heating"
+    ) {
+      profiles[index] = {
+        ...profiles[index],
+        [field]: Number(value),
+      };
+    } else if (field === "defrost") {
+      profiles[index] = {
+        ...profiles[index],
+        [field]: Boolean(value),
+      };
+    } else {
+      profiles[index] = {
+        ...profiles[index],
+        [field]: value,
+      };
+    }
+    this._updateProfiles(profiles);
+  }
+
+  _updateProfiles(profiles) {
+    this._config = {
+      ...this._config,
+      climate_profiles: profiles,
+    };
+    this.dispatchEvent(
+      new CustomEvent("config-changed", { detail: { config: this._config } })
+    );
+    this.requestUpdate();
+  }
+
   render() {
     if (!this.hass) return html``;
+    const profiles = this._config.climate_profiles || DEFAULT_CLIMATE_PROFILES;
 
     return html`
       <div class="card-config">
@@ -2256,14 +2800,186 @@ class PassableVehicleCardEditor extends LitElement {
         </div>
 
         <div class="option-row">
-          <label class="label">Car Image URL (Optional)</label>
+          <label class="label">Car Image (Drag & Drop or Browse)</label>
+          <ha-picture-upload
+            .hass=${this.hass}
+            .value=${this._config.image || ""}
+            @value-changed=${this._imageChanged}
+          ></ha-picture-upload>
           <input
             class="input-text"
+            style="margin-top: 6px;"
             .value=${this._config.image || ""}
             .configValue=${"image"}
             @input=${this._valueChanged}
-            placeholder="/local/images/car.png"
+            placeholder="Or enter path / URL: /local/images/car.png"
           />
+        </div>
+
+        <!-- CLIMATE PROFILES SECTION -->
+        <div class="profiles-section">
+          <div class="section-header-row">
+            <h4 class="section-header" style="margin: 0; border: none;">Climate Presets & Profiles</h4>
+            <button type="button" class="btn-add" @click=${this._addProfile}>+ Add Profile</button>
+          </div>
+          <span class="help-text">Configure driver presets. You can rename profiles (e.g. Megan, Myles), set defaults for temp, seats, wheel, and defrost.</span>
+
+          <div class="profiles-list">
+            ${profiles.map(
+              (p, idx) => html`
+                <div class="profile-card">
+                  <div class="profile-card-top">
+                    <div class="profile-name-group">
+                      <label class="sub-label">Profile Name</label>
+                      <input
+                        class="input-text"
+                        .value=${p.name || ""}
+                        @input=${(e) => this._updateProfileField(idx, "name", e.target.value)}
+                        placeholder="Driver Name"
+                      />
+                    </div>
+                    <div class="profile-icon-group">
+                      <label class="sub-label">Icon</label>
+                      <input
+                        class="input-text"
+                        .value=${p.icon || "mdi:account"}
+                        @input=${(e) => this._updateProfileField(idx, "icon", e.target.value)}
+                        placeholder="mdi:account"
+                      />
+                    </div>
+                    ${profiles.length > 1
+                      ? html`
+                          <button
+                            type="button"
+                            class="btn-delete"
+                            title="Delete Profile"
+                            @click=${() => this._deleteProfile(idx)}
+                          >
+                            <ha-icon icon="mdi:delete-outline"></ha-icon>
+                          </button>
+                        `
+                      : ""}
+                  </div>
+
+                  <div class="profile-settings-grid">
+                    <div class="sub-col">
+                      <label class="sub-label">Default Temp (°F)</label>
+                      <input
+                        type="number"
+                        class="input-text"
+                        min="60"
+                        max="85"
+                        .value=${p.temp || 72}
+                        @change=${(e) => this._updateProfileField(idx, "temp", e.target.value)}
+                      />
+                    </div>
+                    <div class="sub-col">
+                      <label class="sub-label">Duration (min)</label>
+                      <input
+                        type="number"
+                        class="input-text"
+                        min="5"
+                        max="30"
+                        step="5"
+                        .value=${p.duration || 15}
+                        @change=${(e) => this._updateProfileField(idx, "duration", e.target.value)}
+                      />
+                    </div>
+                    <div class="sub-col">
+                      <label class="sub-label">Steering Wheel</label>
+                      <select
+                        class="input-select"
+                        .value=${String(p.steering_wheel || 0)}
+                        @change=${(e) => this._updateProfileField(idx, "steering_wheel", e.target.value)}
+                      >
+                        <option value="0">Off</option>
+                        <option value="1">Low</option>
+                        <option value="2">High</option>
+                      </select>
+                    </div>
+                    <div class="sub-col">
+                      <label class="sub-label">Front Defrost</label>
+                      <select
+                        class="input-select"
+                        .value=${p.defrost ? "true" : "false"}
+                        @change=${(e) => this._updateProfileField(idx, "defrost", e.target.value === "true")}
+                      >
+                        <option value="false">Off</option>
+                        <option value="true">On</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="profile-seats-grid">
+                    <div class="sub-col">
+                      <label class="sub-label">Driver Seat (FL)</label>
+                      <select
+                        class="input-select"
+                        .value=${String(p.seats?.fl || 0)}
+                        @change=${(e) => this._updateProfileField(idx, "seats.fl", e.target.value)}
+                      >
+                        <option value="0">Off</option>
+                        <option value="3">Cool Low</option>
+                        <option value="4">Cool Mid</option>
+                        <option value="5">Cool High</option>
+                        <option value="6">Heat Low</option>
+                        <option value="7">Heat Mid</option>
+                        <option value="8">Heat High</option>
+                      </select>
+                    </div>
+                    <div class="sub-col">
+                      <label class="sub-label">Pass. Seat (FR)</label>
+                      <select
+                        class="input-select"
+                        .value=${String(p.seats?.fr || 0)}
+                        @change=${(e) => this._updateProfileField(idx, "seats.fr", e.target.value)}
+                      >
+                        <option value="0">Off</option>
+                        <option value="3">Cool Low</option>
+                        <option value="4">Cool Mid</option>
+                        <option value="5">Cool High</option>
+                        <option value="6">Heat Low</option>
+                        <option value="7">Heat Mid</option>
+                        <option value="8">Heat High</option>
+                      </select>
+                    </div>
+                    <div class="sub-col">
+                      <label class="sub-label">Rear L Seat</label>
+                      <select
+                        class="input-select"
+                        .value=${String(p.seats?.rl || 0)}
+                        @change=${(e) => this._updateProfileField(idx, "seats.rl", e.target.value)}
+                      >
+                        <option value="0">Off</option>
+                        <option value="3">Cool Low</option>
+                        <option value="4">Cool Mid</option>
+                        <option value="5">Cool High</option>
+                        <option value="6">Heat Low</option>
+                        <option value="7">Heat Mid</option>
+                        <option value="8">Heat High</option>
+                      </select>
+                    </div>
+                    <div class="sub-col">
+                      <label class="sub-label">Rear R Seat</label>
+                      <select
+                        class="input-select"
+                        .value=${String(p.seats?.rr || 0)}
+                        @change=${(e) => this._updateProfileField(idx, "seats.rr", e.target.value)}
+                      >
+                        <option value="0">Off</option>
+                        <option value="3">Cool Low</option>
+                        <option value="4">Cool Mid</option>
+                        <option value="5">Cool High</option>
+                        <option value="6">Heat Low</option>
+                        <option value="7">Heat Mid</option>
+                        <option value="8">Heat High</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              `
+            )}
+          </div>
         </div>
 
         <details class="advanced-section">
@@ -2280,40 +2996,29 @@ class PassableVehicleCardEditor extends LitElement {
             ${this._renderEntityPicker("charging_power_entity", "Charging Power (kW)", ["sensor"])}
 
             <h4 class="section-header">Doors & Hatch Overrides</h4>
-            ${this._renderEntityPicker("hood_entity", "Hood Status", ["binary_sensor", "sensor"])}
-            ${this._renderEntityPicker("trunk_entity", "Trunk / Tailgate Status", ["binary_sensor", "sensor"])}
-            ${this._renderEntityPicker("door_fl_entity", "Front Left Door", ["binary_sensor", "sensor"])}
-            ${this._renderEntityPicker("door_fr_entity", "Front Right Door", ["binary_sensor", "sensor"])}
-            ${this._renderEntityPicker("door_rl_entity", "Rear Left Door", ["binary_sensor", "sensor"])}
-            ${this._renderEntityPicker("door_rr_entity", "Rear Right Door", ["binary_sensor", "sensor"])}
+            ${this._renderEntityPicker("hood_entity", "Hood Status", ["binary_sensor"])}
+            ${this._renderEntityPicker("trunk_entity", "Trunk / Tailgate Status", ["binary_sensor"])}
+            ${this._renderEntityPicker("door_fl_entity", "Front Left Door", ["binary_sensor"])}
+            ${this._renderEntityPicker("door_fr_entity", "Front Right Door", ["binary_sensor"])}
+            ${this._renderEntityPicker("door_rl_entity", "Rear Left Door", ["binary_sensor"])}
+            ${this._renderEntityPicker("door_rr_entity", "Rear Right Door", ["binary_sensor"])}
 
             <h4 class="section-header">Climate & Comfort Overrides</h4>
-            ${this._renderEntityPicker("hvac_status_entity", "HVAC / Air Conditioner Active", ["binary_sensor", "climate", "sensor"])}
-            ${this._renderEntityPicker("climate_temp_entity", "Climate Temperature", ["input_number", "number", "sensor"])}
-            ${this._renderEntityPicker("climate_duration_entity", "Defrost Duration", ["input_number", "number", "sensor"])}
-            ${this._renderEntityPicker("climate_defrost_entity", "Front Defrost Toggle", ["input_boolean", "switch", "binary_sensor"])}
-            ${this._renderEntityPicker("climate_heat_entity", "Rear Defrost Toggle", ["input_boolean", "switch", "binary_sensor"])}
-            ${this._renderEntityPicker("wheel_heat_entity", "Steering Wheel Heat", ["input_select", "select", "sensor"])}
-            ${this._renderEntityPicker("seat_fl_entity", "Driver Seat Heat/Cool", ["input_select", "select", "sensor"])}
-            ${this._renderEntityPicker("seat_fr_entity", "Passenger Seat Heat/Cool", ["input_select", "select", "sensor"])}
-            ${this._renderEntityPicker("seat_rl_entity", "Rear Left Seat Heat/Cool", ["input_select", "select", "sensor"])}
-            ${this._renderEntityPicker("seat_rr_entity", "Rear Right Seat Heat/Cool", ["input_select", "select", "sensor"])}
-            ${this._renderEntityPicker("profile_entity", "Driver Profile Entity", ["input_select", "select"])}
+            ${this._renderEntityPicker("hvac_status_entity", "HVAC / Air Conditioner Active Status", ["binary_sensor", "climate", "switch", "sensor"])}
 
             <h4 class="section-header">Charging & Limits Overrides</h4>
-            ${this._renderEntityPicker("ac_limit_entity", "AC Charge Limit", ["number", "input_number", "sensor"])}
-            ${this._renderEntityPicker("dc_limit_entity", "DC Charge Limit", ["number", "input_number", "sensor"])}
+            ${this._renderEntityPicker("ac_limit_entity", "AC Charge Limit", ["number"])}
+            ${this._renderEntityPicker("dc_limit_entity", "DC Charge Limit", ["number"])}
             ${this._renderEntityPicker("ac_current_entity", "AC Charging Current", ["input_select", "select"])}
             ${this._renderEntityPicker("charge_time_entity", "Charge Time Remaining", ["sensor"])}
 
-            <h4 class="section-header">Script & Service Overrides</h4>
-            ${this._renderEntityPicker("start_climate_script", "Start Climate Script", ["script"])}
-            ${this._renderEntityPicker("stop_climate_script", "Stop Climate Script", ["script"])}
-            ${this._renderEntityPicker("save_profile_script", "Save Profile Script", ["script"])}
+            <h4 class="section-header">Integration & Service Overrides</h4>
             <div class="option-row">
-              <label class="label">Device ID (For Force Update / UVO)</label>
-              <input class="input-text" .value=${this._config.device_id || ""} .configValue=${"device_id"} @input=${this._valueChanged} />
+              <label class="label">Device ID (For Kia UVO / Force Update)</label>
+              <input class="input-text" .value=${this._config.device_id || ""} .configValue=${"device_id"} @input=${this._valueChanged} placeholder="Auto-detected if left blank" />
             </div>
+            ${this._renderEntityPicker("start_climate_service", "Custom Start Climate Service / Script (Optional)", ["script"])}
+            ${this._renderEntityPicker("stop_climate_service", "Custom Stop Climate Service / Script (Optional)", ["script"])}
           </div>
         </details>
       </div>
@@ -2352,9 +3057,81 @@ class PassableVehicleCardEditor extends LitElement {
         width: 100%;
         box-sizing: border-box;
       }
-      ha-entity-picker {
+      ha-entity-picker, ha-picture-upload {
         width: 100%;
         display: block;
+      }
+      .profiles-section {
+        margin-top: 12px;
+        border: 1px solid var(--divider-color, #ccc);
+        border-radius: 8px;
+        padding: 12px;
+        background: var(--secondary-background-color, #fafafa);
+      }
+      .section-header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+      .btn-add {
+        background: var(--primary-color, #2196f3);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 6px 12px;
+        font-size: 0.8em;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .profile-card {
+        border: 1px solid var(--divider-color, #e0e0e0);
+        border-radius: 8px;
+        padding: 10px;
+        margin-top: 10px;
+        background: var(--card-background-color, #fff);
+      }
+      .profile-card-top {
+        display: flex;
+        gap: 10px;
+        align-items: flex-end;
+      }
+      .profile-name-group {
+        flex: 2;
+      }
+      .profile-icon-group {
+        flex: 1;
+      }
+      .btn-delete {
+        background: transparent;
+        color: var(--error-color, #f44336);
+        border: 1px solid var(--error-color, #f44336);
+        border-radius: 6px;
+        padding: 6px 8px;
+        cursor: pointer;
+        height: 38px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .profile-settings-grid, .profile-seats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .sub-col {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .sub-label {
+        font-size: 0.75em;
+        font-weight: 500;
+        color: var(--secondary-text-color, #666);
       }
       .advanced-section {
         margin-top: 8px;
