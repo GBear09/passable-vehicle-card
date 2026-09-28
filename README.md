@@ -1,7 +1,7 @@
 # Passable Vehicle Card
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v1.5.1-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
+[![version](https://img.shields.io/badge/version-v1.5.2-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 A sleek, customizable, and universal vehicle dashboard card for Home Assistant. Designed to monitor and control any electric vehicle (EV), internal combustion engine (ICE), or hybrid vehicle with dynamic animations, modern glassmorphism styling, **custom drag-and-drop image upload**, **native Home Assistant `ha-entity-picker` Visual UI Editor support**, **direct vehicle climate service dispatch**, and **intelligent entity auto-discovery**.

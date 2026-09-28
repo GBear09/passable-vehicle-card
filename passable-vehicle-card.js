@@ -1,11 +1,11 @@
 /**
  * Passable Vehicle Card
- * Version: 1.5.1
+ * Version: 1.5.2
  * GitHub: https://github.com/GBear09/passable-vehicle-card
  * Description: A customizable, universal vehicle dashboard card for Home Assistant with native ha-entity-picker visual UI editor, custom drag-and-drop image upload, and entity auto-discovery.
  */
 
-const CARD_VERSION = "1.5.1";
+const CARD_VERSION = "1.5.2";
 
 const DEFAULT_CLIMATE_PROFILES = [
   {
@@ -1310,104 +1310,6 @@ class PassableVehicleCard extends LitElement {
     `;
   }
 
-  _renderProfileChip(entityId, option) {
-    const current = this.hass.states[entityId]?.state;
-    const isActive = current === option;
-
-    return html`
-      <div
-        class="profile-chip ${isActive ? "active" : ""}"
-        @click=${() => this._setInputSelect(entityId, option)}
-      >
-        <ha-icon icon="mdi:account"></ha-icon>
-        ${option}
-      </div>
-    `;
-  }
-
-  _renderSimpleWidget(entityId, icon, label, isSteering = false) {
-    const stateObj = this.hass.states[entityId];
-    if (!stateObj) return html``;
-    const val = stateObj.state;
-    const isActive = isSteering ? val !== "Off" && val !== "off" : val === "on";
-    let level = 0;
-    if (isSteering) {
-      if (val === "Low" || val === "low") level = 1;
-      if (val === "High" || val === "high") level = 3;
-    }
-    const dots = [];
-    if (isSteering) {
-      for (let i = 0; i < 3; i++) {
-        dots.push(
-          html`<div class="dot ${i < level ? "dot-active-heat" : ""}"></div>`
-        );
-      }
-    } else {
-      dots.push(html`<div class="dot-spacer"></div>`);
-    }
-    const activeClass = isActive ? "heat" : "off";
-
-    return html`
-      <div
-        class="seat-widget small-widget ${activeClass}"
-        @click=${() =>
-          isSteering
-            ? this._cycleWheel(entityId, val)
-            : this._toggleEntity(entityId)}
-      >
-        <ha-icon icon="${icon}"></ha-icon>
-        <span class="seat-label">${label}</span>
-        <div class="dots-container">${dots}</div>
-        <span class="seat-state"
-          >${isActive ? (isSteering ? val.toUpperCase() : "ON") : "OFF"}</span
-        >
-      </div>
-    `;
-  }
-
-  _renderSeat(entityId, label) {
-    const stateObj = this.hass.states[entityId];
-    if (!stateObj) return html``;
-    const val = stateObj.state;
-    let mode = "off";
-    let level = 0;
-    if (val.includes("Heat")) {
-      mode = "heat";
-      if (val.includes("High")) level = 3;
-      else if (val.includes("Mid")) level = 2;
-      else level = 1;
-    } else if (val.includes("Cool")) {
-      mode = "cool";
-      if (val.includes("High")) level = 3;
-      else if (val.includes("Mid")) level = 2;
-      else level = 1;
-    }
-    const dots = [];
-    for (let i = 0; i < 3; i++) {
-      const dotClass =
-        i < level
-          ? mode === "heat"
-            ? "dot-active-heat"
-            : "dot-active-cool"
-          : "";
-      dots.push(html`<div class="dot ${dotClass}"></div>`);
-    }
-
-    return html`
-      <div
-        class="seat-widget ${mode}"
-        @click=${() => this._cycleSeat(entityId, val)}
-      >
-        <ha-icon icon="mdi:car-seat"></ha-icon>
-        <span class="seat-label">${label}</span>
-        <div class="dots-container">${dots}</div>
-        <span class="seat-state"
-          >${mode === "off" ? "OFF" : mode.toUpperCase()}</span
-        >
-      </div>
-    `;
-  }
-
   _moreInfo(entityId) {
     if (!entityId) return;
     this.dispatchEvent(
@@ -1579,24 +1481,39 @@ class PassableVehicleCard extends LitElement {
 
     const pathParts = window.location.pathname.split("/").filter(Boolean);
     let urlPath = null;
-    if (pathParts.length > 0 && pathParts[0].startsWith("lovelace-")) {
+    if (pathParts.length > 0 && pathParts[0] !== "lovelace" && pathParts[0] !== "config") {
       urlPath = pathParts[0];
     }
 
-    const dashboardConfig = await this.hass.callWS({
-      type: "lovelace/config",
-      url_path: urlPath,
-    });
+    let dashboardConfig = null;
+    try {
+      dashboardConfig = await this.hass.callWS({
+        type: "lovelace/config",
+        url_path: urlPath,
+      });
+    } catch (e) {
+      if (urlPath !== null) {
+        try {
+          dashboardConfig = await this.hass.callWS({
+            type: "lovelace/config",
+            url_path: null,
+          });
+          urlPath = null;
+        } catch (e2) {}
+      }
+    }
     if (!dashboardConfig || !dashboardConfig.views) return false;
 
     let cardFound = false;
     const updateCard = (card) => {
-      if (cardFound) return card;
+      if (!card || cardFound) return card;
+      const cardType = card.type || "";
       const isMatch =
-        card.type === "custom:passable-vehicle-card" &&
+        (cardType === "custom:passable-vehicle-card" || cardType === "passable-vehicle-card") &&
         (card.entity === this.config.entity ||
           card.battery_entity === this.config.battery_entity ||
-          card.title === this.config.title);
+          card.title === this.config.title ||
+          (!card.entity && !this.config.entity));
 
       if (isMatch) {
         cardFound = true;
@@ -1608,15 +1525,27 @@ class PassableVehicleCard extends LitElement {
       if (card.cards && Array.isArray(card.cards)) {
         return { ...card, cards: card.cards.map(updateCard) };
       }
+      if (card.card && typeof card.card === "object") {
+        return { ...card, card: updateCard(card.card) };
+      }
       return card;
     };
 
     const newViews = dashboardConfig.views.map((view) => {
-      if (!view.cards) return view;
-      return {
-        ...view,
-        cards: view.cards.map(updateCard),
-      };
+      let updatedView = { ...view };
+      if (updatedView.cards && Array.isArray(updatedView.cards)) {
+        updatedView.cards = updatedView.cards.map(updateCard);
+      }
+      if (updatedView.sections && Array.isArray(updatedView.sections)) {
+        updatedView.sections = updatedView.sections.map((section) => {
+          if (!section.cards || !Array.isArray(section.cards)) return section;
+          return {
+            ...section,
+            cards: section.cards.map(updateCard),
+          };
+        });
+      }
+      return updatedView;
     });
 
     if (!cardFound) return false;
@@ -1672,45 +1601,6 @@ class PassableVehicleCard extends LitElement {
     } else {
       this._showToast(`No charge ${action} service configured`);
     }
-  }
-
-  _cycleWheel(entityId, current) {
-    let next = "Off";
-    if (current === "Off" || current === "off") next = "Low";
-    else if (current === "Low" || current === "low") next = "High";
-    else next = "Off";
-    this._setInputSelect(entityId, next);
-  }
-
-  _cycleSeat(entityId, current) {
-    let next = "Off";
-    switch (current) {
-      case "Off":
-      case "off":
-        next = "Heat High";
-        break;
-      case "Heat High":
-        next = "Heat Mid";
-        break;
-      case "Heat Mid":
-        next = "Heat Low";
-        break;
-      case "Heat Low":
-        next = "Cool High";
-        break;
-      case "Cool High":
-        next = "Cool Mid";
-        break;
-      case "Cool Mid":
-        next = "Cool Low";
-        break;
-      case "Cool Low":
-        next = "Off";
-        break;
-      default:
-        next = "Off";
-    }
-    this._setInputSelect(entityId, next);
   }
 
   static get styles() {
