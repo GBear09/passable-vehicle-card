@@ -1,16 +1,16 @@
 # Passable Vehicle Card
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v1.5.0-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
+[![version](https://img.shields.io/badge/version-v1.5.1-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A sleek, customizable, and universal vehicle dashboard card for Home Assistant. Designed to monitor and control any electric vehicle (EV), internal combustion engine (ICE), or hybrid vehicle with dynamic animations, modern glassmorphism styling, **Native Home Assistant `ha-picture-upload` and `ha-entity-picker` Visual UI Editor support**, **direct vehicle climate service dispatch**, and **intelligent entity auto-discovery**.
+A sleek, customizable, and universal vehicle dashboard card for Home Assistant. Designed to monitor and control any electric vehicle (EV), internal combustion engine (ICE), or hybrid vehicle with dynamic animations, modern glassmorphism styling, **custom drag-and-drop image upload**, **native Home Assistant `ha-entity-picker` Visual UI Editor support**, **direct vehicle climate service dispatch**, and **intelligent entity auto-discovery**.
 
 ---
 
 ## ✨ Features
 
-- 🖼️ **Native Drag & Drop Image Upload**: Uses Home Assistant's native `<ha-picture-upload>` component directly in the visual editor to drag, drop, browse, or replace your vehicle images effortlessly.
+- 🖼️ **Custom Drag & Drop Image Upload**: Seamlessly drag and drop vehicle images from your computer directly into the card editor (or click to browse). Uploads directly to Home Assistant's image store with live thumbnail preview and replace/remove controls. Also supports direct local/web URL input.
 - ❄️ **Direct Climate Control & Staging**: No need for dozens of Home Assistant helper entities! Adjust temperature, defrost, steering wheel heat, and individual seat heating/cooling directly on the card. Hitting "Start Climate" compiles and dispatches commands directly to the vehicle (with automatic 20s confirmation refresh).
 - 👤 **Customizable Climate Presets**: Add, rename, and configure driver profiles (e.g. "Megan", "Myles", "Winter Warmup") right in the visual editor. Tapping the Save (floppy disk) icon on the live card saves your current settings directly as the new defaults for that profile.
 - 🛠️ **Native Visual UI Editor**: Uses Home Assistant's native entity pickers complete with search box, entity icons, area badges, and domain filtering!
@@ -36,7 +36,7 @@ When editing your dashboard in Home Assistant, select **Passable Vehicle Card**.
 2. **Fuel Type** (EV, Gasoline/ICE, or Hybrid)
 3. **Primary Entity Dropdown** (filtered to sensors & binary sensors, auto-discovers all remaining entities)
 4. **Entity Prefix** (Optional)
-5. **Car Image Picker** (Drag and drop or browse files via native `<ha-picture-upload>`)
+5. **Car Image Picker** (Drag and drop or browse files from computer, or specify local/web URL)
 6. **Climate Presets Manager** (Add, rename, delete profiles, and set baseline defaults for temperature, seats, steering wheel, and defrost)
 7. **Advanced Overrides Section**: Categorized dropdown pickers filtered specifically by entity domain:
    - **Status & Sensors**: Range, Lock, Charging, Plug, Odometer, Tire Pressure, Last Updated, Charging Power

@@ -1,11 +1,11 @@
 /**
  * Passable Vehicle Card
- * Version: 1.5.0
+ * Version: 1.5.1
  * GitHub: https://github.com/GBear09/passable-vehicle-card
- * Description: A customizable, universal vehicle dashboard card for Home Assistant with native ha-entity-picker visual UI editor and entity auto-discovery.
+ * Description: A customizable, universal vehicle dashboard card for Home Assistant with native ha-entity-picker visual UI editor, custom drag-and-drop image upload, and entity auto-discovery.
  */
 
-const CARD_VERSION = "1.5.0";
+const CARD_VERSION = "1.5.1";
 
 const DEFAULT_CLIMATE_PROFILES = [
   {
@@ -2596,7 +2596,17 @@ class PassableVehicleCardEditor extends LitElement {
     return {
       hass: {},
       _config: {},
+      _uploading: { type: Boolean },
+      _uploadError: { type: String },
+      _isDragging: { type: Boolean },
     };
+  }
+
+  constructor() {
+    super();
+    this._uploading = false;
+    this._uploadError = "";
+    this._isDragging = false;
   }
 
   setConfig(config) {
@@ -2620,25 +2630,241 @@ class PassableVehicleCardEditor extends LitElement {
       newConfig[configValue] = value;
     }
 
+    if (configValue === "image") {
+      this._uploadError = "";
+    }
+
     this._config = newConfig;
     this.dispatchEvent(
       new CustomEvent("config-changed", { detail: { config: this._config } })
     );
   }
 
-  _imageChanged(ev) {
-    if (!this._config || !this.hass) return;
-    const value = ev.detail && ev.detail.value !== undefined ? ev.detail.value : null;
+  _setImage(url) {
+    if (!this._config) return;
     let newConfig = { ...this._config };
-    if (!value) {
+    if (!url) {
       delete newConfig.image;
     } else {
-      newConfig.image = value;
+      newConfig.image = url;
     }
+    this._uploadError = "";
     this._config = newConfig;
     this.dispatchEvent(
       new CustomEvent("config-changed", { detail: { config: this._config } })
     );
+    this.requestUpdate();
+  }
+
+  _removeImage(ev) {
+    if (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+    this._setImage("");
+  }
+
+  _handleDragOver(ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (ev.dataTransfer) {
+      ev.dataTransfer.dropEffect = "copy";
+    }
+    if (!this._isDragging) {
+      this._isDragging = true;
+      this.requestUpdate();
+    }
+  }
+
+  _handleDragLeave(ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (ev.currentTarget && ev.currentTarget.contains(ev.relatedTarget)) {
+      return;
+    }
+    this._isDragging = false;
+    this.requestUpdate();
+  }
+
+  async _handleDrop(ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    this._isDragging = false;
+    this.requestUpdate();
+
+    const dt = ev.dataTransfer;
+    if (dt && dt.files && dt.files.length > 0) {
+      await this._uploadFile(dt.files[0]);
+    }
+  }
+
+  _openFilePicker(ev) {
+    if (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+    const fileInput = this.shadowRoot && this.shadowRoot.getElementById("car-image-file-input");
+    if (fileInput) {
+      fileInput.click();
+    }
+  }
+
+  async _handleFileInputChange(ev) {
+    const files = ev.target && ev.target.files;
+    if (files && files.length > 0) {
+      await this._uploadFile(files[0]);
+    }
+    if (ev.target) {
+      ev.target.value = "";
+    }
+  }
+
+  async _uploadFile(file) {
+    if (!file) return;
+
+    if (!file.type || !file.type.startsWith("image/")) {
+      this._uploadError = "Please select a valid image file (PNG, JPG, SVG, WebP).";
+      this.requestUpdate();
+      return;
+    }
+
+    if (!this.hass) {
+      this._uploadError = "Home Assistant connection unavailable.";
+      this.requestUpdate();
+      return;
+    }
+
+    this._uploading = true;
+    this._uploadError = "";
+    this.requestUpdate();
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await this.hass.fetchWithAuth("/api/image/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        throw new Error(`Upload failed (${res.status} ${res.statusText}): ${errorText || "Server error"}`);
+      }
+
+      const data = await res.json();
+      if (data && data.id) {
+        const imageUrl = `/api/image/serve/${data.id}/original`;
+        this._setImage(imageUrl);
+      } else {
+        throw new Error("Invalid response received from Home Assistant image service.");
+      }
+    } catch (err) {
+      console.error("Passable Vehicle Card image upload failed:", err);
+      this._uploadError = err.message || "Failed to upload image. Please try again.";
+    } finally {
+      this._uploading = false;
+      this.requestUpdate();
+    }
+  }
+
+  _renderImageUploader() {
+    const hasImage = Boolean(this._config && this._config.image);
+
+    return html`
+      <div class="option-row">
+        <label class="label">Vehicle Image (Drag & Drop or Browse)</label>
+
+        <input
+          type="file"
+          id="car-image-file-input"
+          accept="image/*"
+          style="display: none;"
+          @change=${this._handleFileInputChange}
+        />
+
+        <div
+          class="image-dropzone ${this._isDragging ? "dragging" : ""} ${hasImage ? "has-image" : ""}"
+          @dragover=${this._handleDragOver}
+          @dragleave=${this._handleDragLeave}
+          @drop=${this._handleDrop}
+          @click=${!hasImage && !this._uploading ? this._openFilePicker : null}
+        >
+          ${this._uploading
+            ? html`
+                <div class="dropzone-status">
+                  <div class="spinner"></div>
+                  <div class="dropzone-text">Uploading image to Home Assistant...</div>
+                </div>
+              `
+            : hasImage
+            ? html`
+                <div class="dropzone-preview-content">
+                  <div class="preview-img-container">
+                    <img
+                      src="${this._config.image}"
+                      alt="Vehicle preview"
+                      class="preview-img"
+                    />
+                  </div>
+                  <div class="preview-actions">
+                    <button
+                      type="button"
+                      class="btn-preview-action"
+                      @click=${this._openFilePicker}
+                    >
+                      <ha-icon icon="mdi:camera-retake"></ha-icon>
+                      <span>Change Image</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-preview-action delete"
+                      @click=${this._removeImage}
+                    >
+                      <ha-icon icon="mdi:delete-outline"></ha-icon>
+                      <span>Remove</span>
+                    </button>
+                  </div>
+                  <div class="dropzone-subhint">
+                    Drag & drop a new file here to replace, or click Change Image
+                  </div>
+                </div>
+              `
+            : html`
+                <div class="dropzone-empty-content">
+                  <ha-icon icon="mdi:cloud-upload" class="upload-icon"></ha-icon>
+                  <div class="dropzone-title">Drag & drop your vehicle image here</div>
+                  <div class="dropzone-hint">
+                    or <span class="browse-link">click to browse</span> from your device
+                  </div>
+                  <div class="dropzone-formats">Supports PNG, JPG, WebP, SVG</div>
+                </div>
+              `}
+        </div>
+
+        ${this._uploadError
+          ? html`
+              <div class="upload-error-msg">
+                <ha-icon icon="mdi:alert-circle-outline"></ha-icon>
+                <span>${this._uploadError}</span>
+              </div>
+            `
+          : ""}
+
+        <details class="manual-url-accordion">
+          <summary>Or enter direct path / web URL</summary>
+          <div class="manual-url-input-container">
+            <input
+              class="input-text"
+              .value=${(this._config && this._config.image) || ""}
+              .configValue=${"image"}
+              @input=${this._valueChanged}
+              placeholder="/local/images/ev9.png or https://..."
+            />
+          </div>
+        </details>
+      </div>
+    `;
   }
 
   _renderEntityPicker(configValue, label, domainFilter = null, helpText = "") {
@@ -2799,22 +3025,7 @@ class PassableVehicleCardEditor extends LitElement {
           />
         </div>
 
-        <div class="option-row">
-          <label class="label">Car Image (Drag & Drop or Browse)</label>
-          <ha-picture-upload
-            .hass=${this.hass}
-            .value=${this._config.image || ""}
-            @value-changed=${this._imageChanged}
-          ></ha-picture-upload>
-          <input
-            class="input-text"
-            style="margin-top: 6px;"
-            .value=${this._config.image || ""}
-            .configValue=${"image"}
-            @input=${this._valueChanged}
-            placeholder="Or enter path / URL: /local/images/car.png"
-          />
-        </div>
+        ${this._renderImageUploader()}
 
         <!-- CLIMATE PROFILES SECTION -->
         <div class="profiles-section">
@@ -3057,9 +3268,175 @@ class PassableVehicleCardEditor extends LitElement {
         width: 100%;
         box-sizing: border-box;
       }
-      ha-entity-picker, ha-picture-upload {
+      ha-entity-picker {
         width: 100%;
         display: block;
+      }
+      /* Custom Image Dropzone */
+      .image-dropzone {
+        border: 2px dashed var(--divider-color, #ccc);
+        border-radius: 8px;
+        padding: 16px;
+        text-align: center;
+        background: var(--card-background-color, #fafafa);
+        cursor: pointer;
+        transition: all 0.2s ease-in-out;
+        position: relative;
+        min-height: 110px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+      }
+      .image-dropzone:hover {
+        border-color: var(--primary-color, #2196f3);
+        background: rgba(33, 150, 243, 0.04);
+      }
+      .image-dropzone.dragging {
+        border-color: var(--primary-color, #2196f3);
+        border-style: solid;
+        background: rgba(33, 150, 243, 0.12);
+        box-shadow: 0 0 10px rgba(33, 150, 243, 0.2);
+      }
+      .image-dropzone.has-image {
+        cursor: default;
+        padding: 12px;
+      }
+      .dropzone-empty-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+      }
+      .dropzone-empty-content * {
+        pointer-events: none;
+      }
+      .upload-icon {
+        --mdc-icon-size: 36px;
+        color: var(--primary-color, #2196f3);
+      }
+      .dropzone-title {
+        font-weight: 600;
+        font-size: 0.9em;
+        color: var(--primary-text-color, #333);
+      }
+      .dropzone-hint {
+        font-size: 0.78em;
+        color: var(--secondary-text-color, #666);
+      }
+      .browse-link {
+        color: var(--primary-color, #2196f3);
+        text-decoration: underline;
+        font-weight: 600;
+      }
+      .dropzone-formats {
+        font-size: 0.7em;
+        color: var(--secondary-text-color, #888);
+      }
+      .dropzone-preview-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 100%;
+        gap: 10px;
+      }
+      .preview-img-container {
+        max-width: 100%;
+        height: 120px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--secondary-background-color, rgba(0, 0, 0, 0.03));
+        border-radius: 6px;
+        padding: 8px;
+        box-sizing: border-box;
+      }
+      .preview-img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+      }
+      .preview-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+      }
+      .btn-preview-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        background: var(--secondary-background-color, #eee);
+        color: var(--primary-text-color, #333);
+        border: 1px solid var(--divider-color, #ccc);
+        border-radius: 6px;
+        padding: 6px 12px;
+        font-size: 0.8em;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .btn-preview-action:hover {
+        background: var(--primary-color, #2196f3);
+        color: #fff;
+        border-color: var(--primary-color, #2196f3);
+      }
+      .btn-preview-action.delete:hover {
+        background: var(--error-color, #f44336);
+        color: #fff;
+        border-color: var(--error-color, #f44336);
+      }
+      .btn-preview-action ha-icon {
+        --mdc-icon-size: 16px;
+      }
+      .dropzone-subhint {
+        font-size: 0.72em;
+        color: var(--secondary-text-color, #777);
+      }
+      .dropzone-status {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        padding: 12px;
+      }
+      .spinner {
+        width: 28px;
+        height: 28px;
+        border: 3px solid rgba(33, 150, 243, 0.2);
+        border-top-color: var(--primary-color, #2196f3);
+        border-radius: 50%;
+        animation: dropzone-spin 0.8s linear infinite;
+      }
+      @keyframes dropzone-spin {
+        to { transform: rotate(360deg); }
+      }
+      .upload-error-msg {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 6px;
+        color: var(--error-color, #f44336);
+        font-size: 0.8em;
+        font-weight: 500;
+      }
+      .upload-error-msg ha-icon {
+        --mdc-icon-size: 16px;
+      }
+      .manual-url-accordion {
+        margin-top: 6px;
+      }
+      .manual-url-accordion summary {
+        font-size: 0.75em;
+        color: var(--secondary-text-color, #666);
+        cursor: pointer;
+        outline: none;
+      }
+      .manual-url-accordion summary:hover {
+        color: var(--primary-color, #2196f3);
+      }
+      .manual-url-input-container {
+        margin-top: 6px;
       }
       .profiles-section {
         margin-top: 12px;
