@@ -1,11 +1,11 @@
 /**
  * Passable Vehicle Card
- * Version: 1.5.3
+ * Version: 1.5.4
  * GitHub: https://github.com/GBear09/passable-vehicle-card
  * Description: A customizable, universal vehicle dashboard card for Home Assistant with native ha-entity-picker visual UI editor, custom drag-and-drop image upload, and entity auto-discovery.
  */
 
-const CARD_VERSION = "1.5.3";
+const CARD_VERSION = "1.5.4";
 
 const DEFAULT_CLIMATE_PROFILES = [
   {
@@ -79,13 +79,13 @@ class PassableVehicleCard extends LitElement {
     this._touchStartX = null;
     this._touchStartY = null;
     this._climateProfiles = DEFAULT_CLIMATE_PROFILES;
-    this._selectedProfileId = "driver_1";
-    this._stagedTemp = 72;
-    this._stagedDuration = 15;
-    this._stagedDefrost = false;
-    this._stagedHeating = 0;
-    this._stagedWheel = 0;
-    this._stagedSeats = { fl: 0, fr: 0, rl: 0, rr: 0 };
+    this._selectedProfileId = null;
+    this._stagedTemp = null;
+    this._stagedDuration = null;
+    this._stagedDefrost = null;
+    this._stagedHeating = null;
+    this._stagedWheel = null;
+    this._stagedSeats = null;
     this._countdownTimer = null;
   }
 
@@ -102,14 +102,19 @@ class PassableVehicleCard extends LitElement {
     };
 
     if (Array.isArray(config.climate_profiles) && config.climate_profiles.length > 0) {
-      this._climateProfiles = config.climate_profiles;
+      this._climateProfiles = JSON.parse(JSON.stringify(config.climate_profiles));
     } else {
-      this._climateProfiles = DEFAULT_CLIMATE_PROFILES;
+      let localProfiles = null;
+      try {
+        const stored = localStorage.getItem(`pvc_profiles_${this.config.entity || "vehicle"}`);
+        if (stored) localProfiles = JSON.parse(stored);
+      } catch (e) {}
+      this._climateProfiles = localProfiles || DEFAULT_CLIMATE_PROFILES;
     }
 
-    if (!this._selectedProfileId || !this._climateProfiles.some((p) => p.id === this._selectedProfileId)) {
-      this._selectProfile(this._climateProfiles[0].id);
-    }
+    const currentProfileId = this._selectedProfileId || this._climateProfiles[0].id;
+    const targetProfile = this._climateProfiles.find((p) => p.id === currentProfileId) || this._climateProfiles[0];
+    this._selectProfile(targetProfile.id);
   }
 
   getCardSize() {
@@ -1480,6 +1485,15 @@ class PassableVehicleCard extends LitElement {
     profile.steering_wheel = this._stagedWheel;
     profile.seats = { ...(this._stagedSeats || { fl: 0, fr: 0, rl: 0, rr: 0 }) };
 
+    this.config = {
+      ...this.config,
+      climate_profiles: JSON.parse(JSON.stringify(this._climateProfiles)),
+    };
+
+    try {
+      localStorage.setItem(`pvc_profiles_${this.config.entity || "vehicle"}`, JSON.stringify(this._climateProfiles));
+    } catch (e) {}
+
     let saved = false;
     try {
       saved = await this._saveConfigToLovelace();
@@ -1490,9 +1504,6 @@ class PassableVehicleCard extends LitElement {
     if (saved) {
       this._showToast(`Saved settings to "${profile.name}"`);
     } else {
-      try {
-        localStorage.setItem(`pvc_profiles_${this.config.entity || "vehicle"}`, JSON.stringify(this._climateProfiles));
-      } catch (e) {}
       this._showToast(`Saved "${profile.name}" (local)`);
     }
   }
