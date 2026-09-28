@@ -1,11 +1,11 @@
 /**
  * Passable Vehicle Card
- * Version: 1.5.2
+ * Version: 1.5.3
  * GitHub: https://github.com/GBear09/passable-vehicle-card
  * Description: A customizable, universal vehicle dashboard card for Home Assistant with native ha-entity-picker visual UI editor, custom drag-and-drop image upload, and entity auto-discovery.
  */
 
-const CARD_VERSION = "1.5.2";
+const CARD_VERSION = "1.5.3";
 
 const DEFAULT_CLIMATE_PROFILES = [
   {
@@ -91,8 +91,8 @@ class PassableVehicleCard extends LitElement {
 
   setConfig(config) {
     this.config = {
-      title: config.title || config.name || "My Vehicle",
-      subtitle: config.subtitle || "Vehicle Status",
+      title: config.title !== undefined ? config.title : (config.name !== undefined ? config.name : "My Vehicle"),
+      subtitle: config.subtitle !== undefined ? config.subtitle : "",
       fuel_type: config.fuel_type || "ev", // 'ev', 'ice', 'hybrid'
       icon: config.icon || "mdi:car-electric",
       image: config.image || "",
@@ -489,14 +489,20 @@ class PassableVehicleCard extends LitElement {
 
         <div class="header">
           <div class="header-left">
-            <h1 class="title">
-              <ha-icon
-                icon="${titleIcon}"
-                style="margin-right: 8px; color: var(--primary-color)"
-              ></ha-icon>
-              ${this.config.title}
-            </h1>
-            <p class="subtitle">${this.config.subtitle}</p>
+            ${this.config.title || titleIcon
+              ? html`
+                  <h1 class="title">
+                    ${titleIcon
+                      ? html`<ha-icon
+                          icon="${titleIcon}"
+                          style="margin-right: 8px; color: var(--primary-color)"
+                        ></ha-icon>`
+                      : ""}
+                    ${this.config.title || ""}
+                  </h1>
+                `
+              : ""}
+            ${this.config.subtitle ? html`<p class="subtitle">${this.config.subtitle}</p>` : ""}
           </div>
           <div class="header-right">
             <div
@@ -650,10 +656,14 @@ class PassableVehicleCard extends LitElement {
               : html`<ha-icon icon="${this.config.fuel_type === "ice" ? "mdi:car-side" : "mdi:car-electric"}" class="fallback-icon"></ha-icon>`}
           </div>
 
-          <div class="door-overlay top-left ${doorColorClass}">
-            <ha-icon icon="${doorIcon}"></ha-icon>
-            <span>${doorSummary}</span>
-          </div>
+          ${doors.length > 0
+            ? html`
+                <div class="door-overlay top-left ${doorColorClass}">
+                  <ha-icon icon="${doorIcon}"></ha-icon>
+                  <span>${doorSummary}</span>
+                </div>
+              `
+            : ""}
 
           ${entities.lock
             ? html`
@@ -739,10 +749,14 @@ class PassableVehicleCard extends LitElement {
             : ""}
         </div>
 
-        <div class="last-updated-bar">
-          <ha-icon icon="mdi:clock-outline"></ha-icon>
-          Updated ${relativeTime}
-        </div>
+        ${entities.last_updated && this.hass.states[entities.last_updated]?.state
+          ? html`
+              <div class="last-updated-bar">
+                <ha-icon icon="mdi:clock-outline"></ha-icon>
+                Updated ${relativeTime}
+              </div>
+            `
+          : ""}
 
         <div class="stats-grid">
           ${entities.odometer
@@ -951,12 +965,19 @@ class PassableVehicleCard extends LitElement {
       dots.push(html`<div class="dot ${dotClass}"></div>`);
     }
 
+    let seatIcon = "mdi:car-seat";
+    if (mode === "heat") {
+      seatIcon = "mdi:car-seat-heater";
+    } else if (mode === "cool") {
+      seatIcon = "mdi:car-seat-cooler";
+    }
+
     return html`
       <div
         class="seat-widget ${mode}"
         @click=${() => this._cycleSeat(seatKey)}
       >
-        <ha-icon icon="mdi:car-seat-heater"></ha-icon>
+        <ha-icon icon="${seatIcon}"></ha-icon>
         <span class="seat-label">${label}</span>
         <div class="dots-container">${dots}</div>
         <span class="seat-state">${stateText}</span>
@@ -2514,7 +2535,9 @@ class PassableVehicleCardEditor extends LitElement {
     if (this._config[configValue] === value) return;
 
     let newConfig = { ...this._config };
-    if (value === "" || value === undefined || value === null) {
+    if (configValue === "subtitle" || configValue === "title") {
+      newConfig[configValue] = value || "";
+    } else if (value === "" || value === undefined || value === null) {
       delete newConfig[configValue];
     } else {
       newConfig[configValue] = value;
@@ -2865,10 +2888,10 @@ class PassableVehicleCardEditor extends LitElement {
           <label class="label">Vehicle Title</label>
           <input
             class="input-text"
-            .value=${this._config.title || ""}
+            .value=${this._config.title !== undefined ? this._config.title : ""}
             .configValue=${"title"}
             @input=${this._valueChanged}
-            placeholder="My Vehicle"
+            placeholder="My Vehicle (or leave blank)"
           />
         </div>
 
@@ -2876,10 +2899,10 @@ class PassableVehicleCardEditor extends LitElement {
           <label class="label">Subtitle</label>
           <input
             class="input-text"
-            .value=${this._config.subtitle || ""}
+            .value=${this._config.subtitle !== undefined ? this._config.subtitle : ""}
             .configValue=${"subtitle"}
             @input=${this._valueChanged}
-            placeholder="Vehicle Status"
+            placeholder="Optional subtitle (leave blank for none)"
           />
         </div>
 
