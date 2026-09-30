@@ -1,11 +1,11 @@
 /**
  * Passable Vehicle Card
- * Version: 1.5.5
+ * Version: 1.5.6
  * GitHub: https://github.com/GBear09/passable-vehicle-card
  * Description: A customizable, universal vehicle dashboard card for Home Assistant with native ha-entity-picker visual UI editor, custom drag-and-drop image upload, and entity auto-discovery.
  */
 
-const CARD_VERSION = "1.5.5";
+const CARD_VERSION = "1.5.6";
 
 const DEFAULT_CLIMATE_PROFILES = [
   {
@@ -68,6 +68,7 @@ class PassableVehicleCard extends LitElement {
       _stagedHeating: { type: Number },
       _stagedWheel: { type: Number },
       _stagedSeats: { type: Object },
+      _stagedEvseCurrent: { type: Number },
     };
   }
 
@@ -86,6 +87,7 @@ class PassableVehicleCard extends LitElement {
     this._stagedHeating = null;
     this._stagedWheel = null;
     this._stagedSeats = null;
+    this._stagedEvseCurrent = null;
     this._countdownTimer = null;
   }
 
@@ -293,6 +295,19 @@ class PassableVehicleCard extends LitElement {
         domains: ["input_select", "select"],
         patterns: ["ac_charging_current", "ac_current"],
       },
+      evse_current: {
+        domains: ["number", "input_number", "select", "input_select"],
+        patterns: [
+          "evse_charge_current_limit",
+          "evse_current_limit",
+          "evse_charging_current",
+          "evse_current",
+          "charger_current_limit",
+          "charge_current_limit",
+          "charging_current_limit",
+          "charger_current",
+        ],
+      },
       charge_time: {
         domains: ["sensor"],
         patterns: ["estimated_charge_duration", "charge_time_remaining", "time_to_full"],
@@ -303,6 +318,37 @@ class PassableVehicleCard extends LitElement {
 
     for (const [key, def] of Object.entries(entityPatterns)) {
       const configKey = key === "battery" ? "entity" : `${key}_entity`;
+
+      if (key === "ac_current") {
+        if (
+          cfg.show_ac_current === false ||
+          cfg.ac_current_entity === "none" ||
+          cfg.ac_current_entity === "disabled"
+        ) {
+          discovered[key] = null;
+          continue;
+        }
+      }
+
+      if (key === "evse_current") {
+        if (
+          cfg.show_evse_current === false ||
+          cfg.evse_current_entity === "none" ||
+          cfg.evse_current_entity === "disabled"
+        ) {
+          discovered[key] = null;
+          continue;
+        }
+        if (cfg.evse_current_entity || cfg.evse_charge_current_entity || cfg.evse_current) {
+          discovered[key] = cfg.evse_current_entity || cfg.evse_charge_current_entity || cfg.evse_current;
+          continue;
+        }
+      }
+
+      if (cfg[configKey] === "none" || cfg[configKey] === "disabled") {
+        discovered[key] = null;
+        continue;
+      }
       if (cfg[configKey]) {
         discovered[key] = cfg[configKey];
         continue;
@@ -1176,14 +1222,22 @@ class PassableVehicleCard extends LitElement {
             `
           : ""}
 
+        ${entities.evse_current
+          ? html`
+              <div class="charging-section middle-section">
+                <div class="section-title">EVSE Charging Current</div>
+                ${this._renderEvseCurrentControl(entities.evse_current)}
+              </div>
+              <div class="divider"></div>
+            `
+          : ""}
+
         ${entities.ac_current
           ? html`
               <div class="charging-section middle-section">
-                <div class="section-title">AC Charging Current</div>
+                <div class="section-title">Vehicle AC Charging Current</div>
                 <div class="current-selector">
-                  ${this._renderCurrentChip(entities.ac_current, "60%")}
-                  ${this._renderCurrentChip(entities.ac_current, "90%")}
-                  ${this._renderCurrentChip(entities.ac_current, "100%")}
+                  ${this._renderCurrentChips(entities.ac_current)}
                 </div>
               </div>
               <div class="divider"></div>
@@ -1245,8 +1299,86 @@ class PassableVehicleCard extends LitElement {
           @change=${(e) => this._setLimitValue(entityId, e.target.value)}
         ></ha-slider>
         <div class="slider-ticks">
-          <span>${min}%</span>
-          <span>${max}%</span>
+          <span>${min}${unit}</span>
+          <span>${max}${unit}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderEvseCurrentControl(entityId) {
+    const stateObj = this.hass.states[entityId];
+    if (!stateObj) return html``;
+
+    const isSelect = entityId.startsWith("select.") || entityId.startsWith("input_select.");
+    const voltage = parseFloat(this.config && this.config.evse_voltage) || 240;
+
+    if (isSelect) {
+      const options =
+        stateObj.attributes && stateObj.attributes.options && stateObj.attributes.options.length > 0
+          ? stateObj.attributes.options
+          : ["6A", "16A", "24A", "32A", "40A", "48A"];
+
+      return html`
+        <div class="current-selector">
+          ${options.map((opt) => {
+            const num = parseFloat(opt) || 0;
+            const kw = num > 0 ? ((num * voltage) / 1000).toFixed(1) : null;
+            const isActive = stateObj.state === opt;
+            return html`
+              <div
+                class="profile-chip ${isActive ? "active" : ""}"
+                title=${kw ? `~${kw} kW` : ""}
+                @click=${() => this._setInputSelect(entityId, opt)}
+              >
+                ${opt}${kw ? html`<span class="chip-kw"> (~${kw} kW)</span>` : ""}
+              </div>
+            `;
+          })}
+        </div>
+      `;
+    }
+
+    const min = stateObj.attributes && stateObj.attributes.min !== undefined ? Number(stateObj.attributes.min) : 0;
+    const max = stateObj.attributes && stateObj.attributes.max !== undefined ? Number(stateObj.attributes.max) : 48;
+    const step = stateObj.attributes && stateObj.attributes.step !== undefined ? Number(stateObj.attributes.step) : 1;
+    const unit = (stateObj.attributes && stateObj.attributes.unit_of_measurement) || "A";
+
+    const currentVal =
+      this._stagedEvseCurrent !== undefined && this._stagedEvseCurrent !== null
+        ? this._stagedEvseCurrent
+        : (parseFloat(stateObj.state) || min);
+
+    const kw = ((currentVal * voltage) / 1000).toFixed(1);
+
+    return html`
+      <div class="slider-control evse-slider">
+        <div class="slider-header">
+          <span class="slider-label">Current Limit</span>
+          <span class="slider-value">
+            ${currentVal}${unit}
+            <span class="slider-power">(~${kw} kW)</span>
+          </span>
+        </div>
+        <ha-slider
+          .min=${min}
+          .max=${max}
+          .step=${step}
+          .value=${currentVal}
+          pin
+          @input=${(e) => {
+            this._stagedEvseCurrent = parseFloat(e.target.value);
+            this.requestUpdate();
+          }}
+          @change=${(e) => {
+            const val = parseFloat(e.target.value);
+            this._stagedEvseCurrent = null;
+            this._setLimitValue(entityId, val, unit);
+          }}
+        ></ha-slider>
+        <div class="slider-ticks">
+          <span>${min}${unit}</span>
+          <span>${max}${unit}</span>
         </div>
       </div>
     `;
@@ -1323,6 +1455,16 @@ class PassableVehicleCard extends LitElement {
         </div>
       </div>
     `;
+  }
+
+  _renderCurrentChips(entityId) {
+    const stateObj = this.hass.states[entityId];
+    const options =
+      stateObj && stateObj.attributes && stateObj.attributes.options && stateObj.attributes.options.length > 0
+        ? stateObj.attributes.options
+        : ["60%", "90%", "100%"];
+
+    return options.map((opt) => this._renderCurrentChip(entityId, opt));
   }
 
   _renderCurrentChip(entityId, option) {
@@ -1404,14 +1546,22 @@ class PassableVehicleCard extends LitElement {
     });
   }
 
-  _setLimitValue(entityId, value) {
+  _setLimitValue(entityId, value, unit = null) {
     if (!entityId) return;
     const domain = entityId.startsWith("number.") ? "number" : "input_number";
+    const numVal = parseFloat(value);
     this.hass.callService(domain, "set_value", {
       entity_id: entityId,
-      value: value,
+      value: numVal,
     });
-    this._showToast(`Setting Limit to ${value}%`);
+    const stateObj = this.hass.states[entityId];
+    const unitStr =
+      unit !== null
+        ? unit
+        : (stateObj && stateObj.attributes && stateObj.attributes.unit_of_measurement
+            ? stateObj.attributes.unit_of_measurement
+            : "%");
+    this._showToast(`Setting Limit to ${numVal}${unitStr}`);
   }
 
   async _handleClimateStart(entities) {
@@ -2345,6 +2495,12 @@ class PassableVehicleCard extends LitElement {
       .slider-value {
         color: var(--primary-color);
       }
+      .slider-power {
+        font-size: 0.85em;
+        color: var(--secondary-text-color);
+        font-weight: normal;
+        margin-left: 4px;
+      }
       .slider-ticks {
         display: flex;
         justify-content: space-between;
@@ -2440,9 +2596,14 @@ class PassableVehicleCard extends LitElement {
 
       .current-selector {
         display: flex;
+        flex-wrap: wrap;
         gap: 8px;
         width: 100%;
         padding-bottom: 8px;
+      }
+      .chip-kw {
+        font-size: 0.8em;
+        opacity: 0.8;
       }
       .charge-stats {
         margin-bottom: 24px;
@@ -2586,13 +2747,22 @@ class PassableVehicleCardEditor extends LitElement {
     const configValue = target.configValue || target.getAttribute("configValue");
     if (!configValue) return;
 
-    const value = ev.detail && ev.detail.value !== undefined ? ev.detail.value : target.value;
+    let value;
+    if (target.tagName === "HA-SWITCH" || target.type === "checkbox") {
+      value = target.checked;
+    } else if (ev.detail && ev.detail.value !== undefined) {
+      value = ev.detail.value;
+    } else {
+      value = target.value;
+    }
 
     if (this._config[configValue] === value) return;
 
     let newConfig = { ...this._config };
     if (configValue === "subtitle" || configValue === "title") {
       newConfig[configValue] = value || "";
+    } else if (typeof value === "boolean") {
+      newConfig[configValue] = value;
     } else if (value === "" || value === undefined || value === null) {
       delete newConfig[configValue];
     } else {
@@ -3189,7 +3359,48 @@ class PassableVehicleCardEditor extends LitElement {
             <h4 class="section-header">Charging & Limits Overrides</h4>
             ${this._renderEntityPicker("ac_limit_entity", "AC Charge Limit", ["number"])}
             ${this._renderEntityPicker("dc_limit_entity", "DC Charge Limit", ["number"])}
-            ${this._renderEntityPicker("ac_current_entity", "AC Charging Current", ["input_select", "select"])}
+
+            <div class="toggle-row">
+              <div class="label-group">
+                <span class="label">Show Vehicle AC Current</span>
+                <span class="help-text">Display vehicle charging current buttons (60%, 90%, 100%)</span>
+              </div>
+              <ha-switch
+                .checked=${this._config.show_ac_current !== false && this._config.ac_current_entity !== "none"}
+                .configValue=${"show_ac_current"}
+                @change=${this._valueChanged}
+              ></ha-switch>
+            </div>
+
+            ${this._config.show_ac_current !== false && this._config.ac_current_entity !== "none"
+              ? this._renderEntityPicker(
+                  "ac_current_entity",
+                  "Vehicle AC Charging Current",
+                  ["input_select", "select"],
+                  "Entity for vehicle charging current selector. Can also select None to disable."
+                )
+              : ""}
+
+            ${this._renderEntityPicker(
+              "evse_current_entity",
+              "EVSE / Charger Current Limit",
+              ["number", "input_number", "select", "input_select"],
+              "Entity controlling wall charger / EVSE current limit (e.g. SPAN Drive, Wallbox)"
+            )}
+
+            <div class="option-row">
+              <label class="label">EVSE Supply Voltage (V)</label>
+              <input
+                class="input-text"
+                type="number"
+                .value=${this._config.evse_voltage !== undefined ? this._config.evse_voltage : ""}
+                .configValue=${"evse_voltage"}
+                @input=${this._valueChanged}
+                placeholder="240"
+              />
+              <span class="help-text">Voltage used to estimate kW charging power (defaults to 240V for Level 2).</span>
+            </div>
+
             ${this._renderEntityPicker("charge_time_entity", "Charge Time Remaining", ["sensor"])}
 
             <h4 class="section-header">Integration & Service Overrides</h4>
@@ -3217,6 +3428,18 @@ class PassableVehicleCardEditor extends LitElement {
         display: flex;
         flex-direction: column;
         gap: 4px;
+      }
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 4px 0;
+      }
+      .toggle-row .label-group {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
       }
       .label {
         font-weight: 600;

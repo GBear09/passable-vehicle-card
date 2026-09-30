@@ -1,7 +1,7 @@
 # Passable Vehicle Card
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v1.5.5-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
+[![version](https://img.shields.io/badge/version-v1.5.6-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 A sleek, customizable, and universal vehicle dashboard card for Home Assistant. Designed to monitor and control any electric vehicle (EV), internal combustion engine (ICE), or hybrid vehicle with dynamic animations, modern glassmorphism styling, **custom drag-and-drop image upload**, **native Home Assistant `ha-entity-picker` Visual UI Editor support**, **direct vehicle climate service dispatch**, and **intelligent entity auto-discovery**.
@@ -11,6 +11,8 @@ A sleek, customizable, and universal vehicle dashboard card for Home Assistant. 
 ## ✨ Features
 
 - 🖼️ **Custom Drag & Drop Image Upload**: Seamlessly drag and drop vehicle images from your computer directly into the card editor (or click to browse). Uploads directly to Home Assistant's image store with live thumbnail preview and replace/remove controls. Also supports direct local/web URL input.
+- ⚡ **EVSE & Charger Current Control**: Configure a dedicated entity for your wall charger/EVSE current limit (e.g. SPAN Drive, Wallbox, Tesla Wall Connector). Includes an interactive slider (or selector chips) displaying live current in Amps alongside dynamically calculated equivalent wattage (`~kW`) based on supply voltage.
+- 🔌 **Flexible Vehicle AC Current Control**: Supports vehicle-side AC charging current presets (60%, 90%, 100%) with an easy toggle/option to hide or disable vehicle AC current when unsupported or broken in the vehicle integration.
 - ❄️ **Direct Climate Control & Staging**: No need for dozens of Home Assistant helper entities! Adjust temperature, defrost, steering wheel heat, and individual seat heating/cooling directly on the card. Hitting "Start Climate" compiles and dispatches commands directly to the vehicle (with automatic 20s confirmation refresh).
 - 👤 **Customizable Climate Presets**: Add, rename, and configure driver profiles (e.g. "Megan", "Myles", "Winter Warmup") right in the visual editor. Tapping the Save (floppy disk) icon on the live card saves your current settings directly as the new defaults for that profile.
 - 🛠️ **Native Visual UI Editor**: Uses Home Assistant's native entity pickers complete with search box, entity icons, area badges, and domain filtering!
@@ -19,7 +21,7 @@ A sleek, customizable, and universal vehicle dashboard card for Home Assistant. 
 - 📱 **Interactive Views**:
   - **Home View**: Vehicle image overlay, real-time door open/closed monitor, quick lock toggle, battery/fuel circular gauge with remaining range, odometer, tire pressure, and relative update timestamp.
   - **Climate View**: Steering wheel heater, front/rear defrost toggles, individual seat heating/cooling levels (Driver, Passenger, Rear), dynamic temperature gauge, defrost duration selector, and dynamic driver profile presets.
-  - **Charge / Fuel View**: AC/DC charging limit sliders, AC charging current selector, estimated remaining charging time display, and start/stop controls.
+  - **Charge / Fuel View**: AC/DC charging limit sliders, EVSE charging current slider with live kW wattage, optional vehicle AC charging current selector, estimated remaining charging time display, and start/stop controls.
 - ⚡ **Dynamic Visual Effects**:
   - Charging beam animation when actively charging.
   - Climate airflow stream animation when climate control is active.
@@ -42,7 +44,7 @@ When editing your dashboard in Home Assistant, select **Passable Vehicle Card**.
    - **Status & Sensors**: Range, Lock, Charging, Plug, Odometer, Tire Pressure, Last Updated, Charging Power
    - **Doors & Trunk**: Hood, Trunk, Front Left, Front Right, Rear Left, Rear Right
    - **Climate & Comfort**: HVAC Active Status
-   - **Charging & Limits**: AC Limit, DC Limit, AC Current, Charge Time Remaining
+   - **Charging & Limits**: AC Limit, DC Limit, Show Vehicle AC Current Toggle, Vehicle AC Current, EVSE / Charger Current Limit, EVSE Voltage, Charge Time Remaining
    - **Integration & Services**: Device ID, Custom Start/Stop Climate Services
 
 ---
