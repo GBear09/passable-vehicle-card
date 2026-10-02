@@ -1,6 +1,6 @@
 {
   "name": "passable-vehicle-card",
-  "version": "1.5.6",
+  "version": "1.5.7",
   "description": "Passable Vehicle Card - A customizable, universal vehicle dashboard card for Home Assistant with native ha-entity-picker visual editor and auto-discovery.",
   "main": "passable-vehicle-card.js",
   "repository": {

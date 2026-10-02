@@ -1,11 +1,11 @@
 /**
  * Passable Vehicle Card
- * Version: 1.5.6
+ * Version: 1.5.7
  * GitHub: https://github.com/GBear09/passable-vehicle-card
  * Description: A customizable, universal vehicle dashboard card for Home Assistant with native ha-entity-picker visual UI editor, custom drag-and-drop image upload, and entity auto-discovery.
  */
 
-const CARD_VERSION = "1.5.6";
+const CARD_VERSION = "1.5.7";
 
 const DEFAULT_CLIMATE_PROFILES = [
   {
@@ -33,7 +33,7 @@ const DEFAULT_CLIMATE_PROFILES = [
 ];
 
 console.info(
-  `%c PASSABLE VEHICLE CARD %c v${CARD_VERSION} `,
+  `%c PASSABLE-VEHICLE-CARD %c v${CARD_VERSION} `,
   "color: white; background: #2196F3; font-weight: bold;",
   "color: #2196F3; background: white; font-weight: bold;"
 );
@@ -45,6 +45,7 @@ window.customCards.push({
   name: "Passable Vehicle Card",
   description: "A customizable, universal vehicle dashboard card for Home Assistant with entity auto-discovery and native visual UI picker.",
   preview: true,
+  documentationURL: "https://github.com/GBear09/passable-vehicle-card",
 });
 
 const LitElement = Object.getPrototypeOf(
