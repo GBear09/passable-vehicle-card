@@ -5,7 +5,7 @@
  * Description: A customizable, universal vehicle dashboard card for Home Assistant with native ha-entity-picker visual UI editor, custom drag-and-drop image upload, and entity auto-discovery.
  */
 
-const CARD_VERSION = "1.5.7";
+const CARD_VERSION = "1.5.8";
 
 const DEFAULT_CLIMATE_PROFILES = [
   {
@@ -2564,11 +2564,12 @@ class PassableVehicleCard extends LitElement {
 
       .gauge-btn {
         position: absolute;
-        width: 24px;
-        height: 24px;
+        width: 36px;
+        height: 36px;
+        min-width: 36px;
+        min-height: 36px;
         border-radius: 50%;
-        background: rgba(var(--rgb-card-background-color, 255, 255, 255), 0.5);
-        backdrop-filter: blur(4px);
+        background: rgba(var(--rgb-card-background-color, 255, 255, 255), 0.75);
         border: 1px solid var(--divider-color);
         display: flex;
         align-items: center;
@@ -2579,6 +2580,11 @@ class PassableVehicleCard extends LitElement {
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
         z-index: 5;
         pointer-events: auto;
+      }
+      .gauge-btn::after {
+        content: "";
+        position: absolute;
+        inset: -6px;
       }
       .gauge-btn.minus {
         top: 50%;
@@ -3733,5 +3739,5 @@ class PassableVehicleCardEditor extends LitElement {
   }
 }
 
-customElements.define("passable-vehicle-card", PassableVehicleCard);
-customElements.define("passable-vehicle-card-editor", PassableVehicleCardEditor);
+if (!customElements.get("passable-vehicle-card")) customElements.define("passable-vehicle-card", PassableVehicleCard);
+if (!customElements.get("passable-vehicle-card-editor")) customElements.define("passable-vehicle-card-editor", PassableVehicleCardEditor);
