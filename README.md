@@ -1,51 +1,62 @@
 # Passable Vehicle Card
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v1.5.7-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
+[![version](https://img.shields.io/badge/version-v2.0.0-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A sleek, customizable, and universal vehicle dashboard card for Home Assistant. Designed to monitor and control any electric vehicle (EV), internal combustion engine (ICE), or hybrid vehicle with dynamic animations, modern glassmorphism styling, **custom drag-and-drop image upload**, **native Home Assistant `ha-entity-picker` Visual UI Editor support**, **direct vehicle climate service dispatch**, and **intelligent entity auto-discovery**.
+A sleek, customizable, and universal vehicle dashboard card for Home Assistant aligned with the Passable Design System (`passable-hvac-card` & `passable-lighting-card`). Displays a compact, state-tinted vehicle summary directly on your dashboard and expands into a 4-tab **Command Center** modal/bottom sheet when tapped, featuring **custom drag-and-drop image upload**, **native Home Assistant `ha-entity-picker` Visual UI Editor support**, **direct vehicle climate & EVSE control**, **multi-vehicle support**, and **intelligent entity auto-discovery**.
 
 ---
 
 ## ✨ Features
 
-- 🖼️ **Custom Drag & Drop Image Upload**: Seamlessly drag and drop vehicle images from your computer directly into the card editor (or click to browse). Uploads directly to Home Assistant's image store with live thumbnail preview and replace/remove controls. Also supports direct local/web URL input.
-- ⚡ **EVSE & Charger Current Control**: Configure a dedicated entity for your wall charger/EVSE current limit (e.g. SPAN Drive, Wallbox, Tesla Wall Connector). Includes an interactive slider (or selector chips) displaying live current in Amps alongside dynamically calculated equivalent wattage (`~kW`) based on supply voltage.
-- 🔌 **Flexible Vehicle AC Current Control**: Supports vehicle-side AC charging current presets (60%, 90%, 100%) with an easy toggle/option to hide or disable vehicle AC current when unsupported or broken in the vehicle integration.
-- ❄️ **Direct Climate Control & Staging**: No need for dozens of Home Assistant helper entities! Adjust temperature, defrost, steering wheel heat, and individual seat heating/cooling directly on the card. Hitting "Start Climate" compiles and dispatches commands directly to the vehicle (with automatic 20s confirmation refresh).
-- 👤 **Customizable Climate Presets**: Add, rename, and configure driver profiles (e.g. "Megan", "Myles", "Winter Warmup") right in the visual editor. Tapping the Save (floppy disk) icon on the live card saves your current settings directly as the new defaults for that profile.
-- 🛠️ **Native Visual UI Editor**: Uses Home Assistant's native entity pickers complete with search box, entity icons, area badges, and domain filtering!
-- 🔍 **Smart Auto-Discovery**: Simply provide **one single entity** (e.g. `entity: sensor.ev9_ev_battery_level`) or a `prefix` (e.g. `prefix: ev9`), and the card will automatically discover all matching sensors, binary sensors, locks, doors, and limits with strict domain filtering.
-- 🚗 **Universal Support**: Flexible configuration for EVs, Gas/ICE vehicles, and Hybrids.
-- 📱 **Interactive Views**:
-  - **Home View**: Vehicle image overlay, real-time door open/closed monitor, quick lock toggle, battery/fuel circular gauge with remaining range, odometer, tire pressure, and relative update timestamp.
-  - **Climate View**: Steering wheel heater, front/rear defrost toggles, individual seat heating/cooling levels (Driver, Passenger, Rear), dynamic temperature gauge, defrost duration selector, and dynamic driver profile presets.
-  - **Charge / Fuel View**: AC/DC charging limit sliders, EVSE charging current slider with live kW wattage, optional vehicle AC charging current selector, estimated remaining charging time display, and start/stop controls.
-- ⚡ **Dynamic Visual Effects**:
-  - Charging beam animation when actively charging.
-  - Climate airflow stream animation when climate control is active.
-  - Dynamic temperature color gradient from blue to neutral to orange.
-- 👆 **Touch Gesture Support**: Swipe left/right on touch devices to switch views seamlessly.
-- 🎨 **Modern Navigation**: Animated pill-expanding tab bar showing text labels on active selection.
+- 🪪 **Passable Summary + Popup Packaging (`display_mode: summary | full`)**:
+  - **Top Status Strip**: Live status dot (Charging, Engine On/Driving, Climate Active, Alert, Plugged, Idle), location indicator, relative sync timestamp, quick lock button, and Command Center trigger.
+  - **Two Dashboard Summary Layouts**:
+    - `layout: hero` *(default)* — Vehicle thumbnail/icon, live status chips, expandable `12V` quick-telemetry tray (`Odo`, `TPMS`, `EVSE`/`Service`), bold `%` & range readout, and hairline battery bar with AC charge limit tick and charging shimmer animation.
+    - `layout: rings` — Dual circular SVG gauges for Battery/Fuel `%` and remaining range.
+  - **Optional 24h Battery Sparkline** (`show_sparkline: true`) and **Quick-Action Footer Strip** (Lock, Climate, Charge/Limit pills).
+  - **Full Inline Mode** (`display_mode: full`) for dedicated vehicle sub-views with swipeable tabs.
+- 📱 **4-Tab Command Center Modal / Bottom Sheet** (with background scroll lock & `Escape` / swipe-down dismissal):
+  - **Overview**: Vehicle hero stage with dynamic charging beams, climate airflow, and engine-on motion streaks; closure & lock badges; circular battery ring; and 4-KPI grid (`12V Aux`, `Odometer`, `Tire Pressure`, `Next Service`).
+  - **Climate**: Driver profile presets (save directly to dashboard config), target temperature & duration steppers, steering wheel heat, front/rear defrost, and individual seat heating/cooling tiles.
+  - **Charge / Fuel**: AC & DC charging limit sliders, EVSE / wall charger current slider with live `~kW` estimation, optional vehicle AC current presets, ETA display, and Start/Stop controls.
+  - **Health**: Doors, hood, trunk, and sunroof status grid; diagnostics & maintenance table (12V battery, TPMS, DTC count, washer fluid, key battery, odometer, next service, location); and one-tap cloud refresh.
+- 🖼️ **Custom Drag & Drop Image Upload**: Upload vehicle photos directly to Home Assistant's image store (with optional separate `summary_image` override) or specify a local/web URL.
+- 🚗 **Multi-Vehicle Support**: Configure a single vehicle with flat YAML/UI config or stack multiple vehicles via `vehicles[]` with a switcher in the Command Center popup.
+- 🔍 **Smart Auto-Discovery**: Provide a single primary entity (e.g. `entity: sensor.ev9_ev_battery_level`) or `prefix` (e.g. `prefix: ev9`) to automatically discover battery, range, doors, trunk, hood, sunroof, engine, lock, climate, limits, EVSE charger, 12V, TPMS, odometer, service, and location entities.
 
 ---
 
-## 🛠️ Visual UI Editor
+## ⚙️ Configuration Examples
 
-When editing your dashboard in Home Assistant, select **Passable Vehicle Card**. The native visual editor allows you to choose entities visually with full HA styling & icons:
-1. **Vehicle Title & Subtitle**
-2. **Fuel Type** (EV, Gasoline/ICE, or Hybrid)
-3. **Primary Entity Dropdown** (filtered to sensors & binary sensors, auto-discovers all remaining entities)
-4. **Entity Prefix** (Optional)
-5. **Car Image Picker** (Drag and drop or browse files from computer, or specify local/web URL)
-6. **Climate Presets Manager** (Add, rename, delete profiles, and set baseline defaults for temperature, seats, steering wheel, and defrost)
-7. **Advanced Overrides Section**: Categorized dropdown pickers filtered specifically by entity domain:
-   - **Status & Sensors**: Range, Lock, Charging, Plug, Odometer, Tire Pressure, Last Updated, Charging Power
-   - **Doors & Trunk**: Hood, Trunk, Front Left, Front Right, Rear Left, Rear Right
-   - **Climate & Comfort**: HVAC Active Status
-   - **Charging & Limits**: AC Limit, DC Limit, Show Vehicle AC Current Toggle, Vehicle AC Current, EVSE / Charger Current Limit, EVSE Voltage, Charge Time Remaining
-   - **Integration & Services**: Device ID, Custom Start/Stop Climate Services
+### Compact Summary + Popup (Default — Matches HVAC & Lighting Cards)
+```yaml
+type: custom:passable-vehicle-card
+title: Kia EV9
+entity: sensor.ev9_ev_battery_level
+image: /api/image/serve/your_image_id/original
+layout: hero
+show_header: false
+show_sparkline: false
+show_ac_current: false
+```
+
+### Multi-Vehicle Stack
+```yaml
+type: custom:passable-vehicle-card
+title: Garage
+show_header: false
+vehicles:
+  - id: ev9
+    title: Kia EV9
+    entity: sensor.ev9_ev_battery_level
+    image: /api/image/serve/ev9_image_id/original
+  - id: second_car
+    title: Family Sedan
+    fuel_type: ice
+    entity: sensor.sedan_fuel_level
+```
 
 ---
 
@@ -56,18 +67,15 @@ When editing your dashboard in Home Assistant, select **Passable Vehicle Card**.
 1. Open **HACS** in your Home Assistant instance.
 2. Click the three dots `⋮` in the top right corner and select **Custom repositories**.
 3. Paste the URL: `https://github.com/GBear09/passable-vehicle-card`
-4. Set the category to **Lovelace** (Dashboard).
+4. Set the category to **Dashboard** (Lovelace).
 5. Click **Add**, then search for **Passable Vehicle Card** and click **Download**.
-6. Refresh your browser page.
+6. Hard refresh your browser (`Ctrl + Shift + R` or `Cmd + Shift + R`).
 
 ### Option 2: Manual Installation
 
 1. Download `passable-vehicle-card.js` from the [latest release](https://github.com/GBear09/passable-vehicle-card/releases).
 2. Copy `passable-vehicle-card.js` to your `www/` directory (`/config/www/passable-vehicle-card.js`).
-3. In Home Assistant, go to **Settings** -> **Dashboards** -> **Three Dots (Top Right)** -> **Resources**.
-4. Add resource:
-   - **URL**: `/local/passable-vehicle-card.js?v=1.5.0`
-   - **Resource Type**: `JavaScript Module`
+3. Add `/local/passable-vehicle-card.js?v=2.0.0` as a JavaScript Module under **Settings** → **Dashboards** → **Resources**.
 
 ---
 
