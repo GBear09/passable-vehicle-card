@@ -1,7 +1,7 @@
 # Passable Vehicle Card
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v2.1.2-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
+[![version](https://img.shields.io/badge/version-v2.1.3-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 A sleek, customizable, and universal vehicle dashboard card for Home Assistant aligned with the Passable Design System (`passable-hvac-card` & `passable-lighting-card`). Displays a compact, state-tinted vehicle summary directly on your dashboard and expands into a 4-tab **Command Center** modal/bottom sheet when tapped, featuring **custom drag-and-drop image upload**, **native Home Assistant `ha-entity-picker` Visual UI Editor support**, **direct vehicle climate & EVSE control**, **multi-vehicle support**, and **intelligent entity auto-discovery**.
@@ -75,7 +75,7 @@ vehicles:
 
 1. Download `passable-vehicle-card.js` from the [latest release](https://github.com/GBear09/passable-vehicle-card/releases).
 2. Copy `passable-vehicle-card.js` to your `www/` directory (`/config/www/passable-vehicle-card.js`).
-3. Add `/local/passable-vehicle-card.js?v=2.1.2` as a JavaScript Module under **Settings** → **Dashboards** → **Resources**.
+3. Add `/local/passable-vehicle-card.js?v=2.1.3` as a JavaScript Module under **Settings** → **Dashboards** → **Resources**.
 
 ---
 

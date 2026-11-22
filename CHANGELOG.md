@@ -5,6 +5,11 @@ All notable changes to **Passable Vehicle Card** will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.3] - 2026-11-22
+
+### Fixed
+- **Uncropped Centered Photo Pin & Themed Marker Background**: Injected `ha-map::part(picture)` (`background-size: contain; background-position: center`) and `ha-map::part(marker)` styling inside the embedded `hui-map-card` shadow root so landscape vehicle cutouts fit completely without horizontal cropping, and replaced the bright `#cbd5e1` backing with the card's dark theme surface and subtle radial highlight.
+
 ## [2.1.2] - 2026-11-22
 
 ### Fixed

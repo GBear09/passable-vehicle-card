@@ -1,6 +1,6 @@
 /**
  * Passable Vehicle Card
- * Version: 2.1.2
+ * Version: 2.1.3
  * GitHub: https://github.com/GBear09/passable-vehicle-card
  *
  * Compact summary dashboard card with a 4-tab Command Center popup (Overview, Climate,
@@ -9,7 +9,7 @@
  * 24h battery sparkline, direct climate/EVSE controls, interactive Home/Away map, and drag-and-drop image upload.
  */
 
-const CARD_VERSION = "2.1.2";
+const CARD_VERSION = "2.1.3";
 
 const DEFAULT_CLIMATE_PROFILES = [
   {
@@ -1595,6 +1595,43 @@ class PassableVehicleCard extends LitElement {
     }
   }
 
+  _injectMapMarkerStyle(el, hasPhoto) {
+    const applyStyle = () => {
+      const root = el?.shadowRoot;
+      if (!root) return;
+      let styleEl = root.querySelector('style[data-pvc-map-style="true"]');
+      if (!hasPhoto) {
+        if (styleEl) styleEl.remove();
+        return;
+      }
+      if (!styleEl) {
+        styleEl = document.createElement("style");
+        styleEl.dataset.pvcMapStyle = "true";
+        root.appendChild(styleEl);
+      }
+      styleEl.textContent = `
+        ha-map::part(marker) {
+          padding: 3px;
+          background: radial-gradient(
+            circle at 50% 45%,
+            rgba(148, 163, 184, 0.24) 0%,
+            var(--ha-card-background, var(--card-background-color, #1e293b)) 78%
+          ) !important;
+        }
+        ha-map::part(picture) {
+          background-size: contain !important;
+          background-position: center !important;
+          background-repeat: no-repeat !important;
+          border-radius: 6px;
+        }
+      `;
+    };
+    applyStyle();
+    if (el?.updateComplete && typeof el.updateComplete.then === "function") {
+      el.updateComplete.then(applyStyle).catch(() => {});
+    }
+  }
+
   _syncEmbeddedMapCard() {
     const host = this.shadowRoot?.querySelector(".vehicle-map-host");
     if (!host) {
@@ -1630,6 +1667,7 @@ class PassableVehicleCard extends LitElement {
       }
       this._mapCardEl.hass = mapHass;
       this._notifyMapStatesSubscribers(mapHass?.states);
+      this._injectMapMarkerStyle(this._mapCardEl, hasPhoto);
       return;
     }
 
@@ -1671,6 +1709,7 @@ class PassableVehicleCard extends LitElement {
         this._mapCardEl = el;
         currentHost.replaceChildren(el);
         this._notifyMapStatesSubscribers(freshHass?.states);
+        this._injectMapMarkerStyle(el, hasPhoto);
         clearTimeout(this._mapResizeTimer);
         this._mapResizeTimer = setTimeout(() => {
           window.dispatchEvent(new Event("resize"));
@@ -5971,7 +6010,8 @@ class PassableVehicleCard extends LitElement {
         --ha-card-border-radius: 12px;
       }
       .vehicle-map-host[data-has-photo="true"] hui-map-card {
-        --ha-marker-background: #cbd5e1;
+        --ha-marker-size: 52px;
+        --ha-marker-background: var(--ha-card-background, var(--card-background-color, #1e293b));
       }
       .vehicle-map-empty {
         display: flex;
