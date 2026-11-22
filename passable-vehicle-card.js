@@ -1,6 +1,6 @@
 /**
  * Passable Vehicle Card
- * Version: 2.1.1
+ * Version: 2.1.2
  * GitHub: https://github.com/GBear09/passable-vehicle-card
  *
  * Compact summary dashboard card with a 4-tab Command Center popup (Overview, Climate,
@@ -9,7 +9,7 @@
  * 24h battery sparkline, direct climate/EVSE controls, interactive Home/Away map, and drag-and-drop image upload.
  */
 
-const CARD_VERSION = "2.1.1";
+const CARD_VERSION = "2.1.2";
 
 const DEFAULT_CLIMATE_PROFILES = [
   {
@@ -174,6 +174,7 @@ class PassableVehicleCard extends LitElement {
     this._mapCardEl = null;
     this._mapCardConfigKey = "";
     this._mapHassCache = null;
+    this._mapStatesSubscribers = new Map();
     this._mapCardHelpersPromise = null;
     this._mapResizeTimer = null;
     this._mapScrollTimer = null;
@@ -194,6 +195,7 @@ class PassableVehicleCard extends LitElement {
     this._scrollGuardOverlay = null;
     this._guardTouchY = 0;
     this._guardTouchX = 0;
+    this._onMapContextRequest = this._onMapContextRequest.bind(this);
     this._onOverlayWheel = this._onOverlayWheel.bind(this);
     this._onOverlayTouchStart = this._onOverlayTouchStart.bind(this);
     this._onOverlayTouchMove = this._onOverlayTouchMove.bind(this);
@@ -314,6 +316,7 @@ class PassableVehicleCard extends LitElement {
     this._mapCardEl = null;
     this._mapCardConfigKey = "";
     this._mapHassCache = null;
+    if (this._mapStatesSubscribers) this._mapStatesSubscribers.clear();
   }
 
   firstUpdated(changedProps) {
@@ -1412,6 +1415,7 @@ class PassableVehicleCard extends LitElement {
     this._mapCardEl = null;
     this._mapCardConfigKey = "";
     this._mapHassCache = null;
+    if (this._mapStatesSubscribers) this._mapStatesSubscribers.clear();
   }
 
   _getIsMapExpanded(snap) {
@@ -1493,6 +1497,7 @@ class PassableVehicleCard extends LitElement {
     }
 
     let patchedState;
+    let patchedStates;
     if (
       cache &&
       cache.entityId === entityId &&
@@ -1502,6 +1507,7 @@ class PassableVehicleCard extends LitElement {
       cache.markerName === markerName
     ) {
       patchedState = cache.patchedState;
+      patchedStates = cache.patchedStates;
     } else {
       const origAttrs = orig.attributes || {};
       const nextAttrs = {
@@ -1514,9 +1520,9 @@ class PassableVehicleCard extends LitElement {
         nextAttrs.icon = markerIcon;
       }
       patchedState = { ...orig, attributes: nextAttrs };
+      patchedStates = { ...baseHass.states, [entityId]: patchedState };
     }
 
-    const patchedStates = { ...baseHass.states, [entityId]: patchedState };
     const mapHass = new Proxy(baseHass, {
       get(target, prop) {
         if (prop === "states") return patchedStates;
@@ -1533,9 +1539,60 @@ class PassableVehicleCard extends LitElement {
       markerIcon,
       markerName,
       patchedState,
+      patchedStates,
       mapHass,
     };
     return mapHass;
+  }
+
+  _onMapContextRequest(ev) {
+    if (!ev || ev.context !== "states" || typeof ev.callback !== "function") {
+      return;
+    }
+    const host =
+      ev.currentTarget || this.shadowRoot?.querySelector(".vehicle-map-host");
+    const entityId = host?.dataset?.entityId || "";
+    const markerImage = host?.dataset?.markerImage || "";
+    const markerIcon = host?.dataset?.markerIcon || "";
+    const markerName = host?.dataset?.markerName || "";
+    const mapHass = this._buildMapHass(
+      entityId,
+      markerImage,
+      markerIcon,
+      markerName
+    );
+    const patchedStates = mapHass?.states || this.hass?.states;
+    if (!patchedStates) return;
+
+    ev.stopPropagation();
+    const cb = ev.callback;
+    if (ev.subscribe) {
+      let entry = this._mapStatesSubscribers.get(cb);
+      if (!entry) {
+        entry = {
+          unsub: () => {
+            this._mapStatesSubscribers.delete(cb);
+          },
+          lastStates: null,
+        };
+        this._mapStatesSubscribers.set(cb, entry);
+      }
+      entry.lastStates = patchedStates;
+      cb(patchedStates, entry.unsub);
+    } else {
+      cb(patchedStates);
+    }
+  }
+
+  _notifyMapStatesSubscribers(patchedStates) {
+    if (!patchedStates) return;
+    for (const [cb, entry] of Array.from(this._mapStatesSubscribers.entries())) {
+      if (entry.lastStates === patchedStates) continue;
+      entry.lastStates = patchedStates;
+      try {
+        cb(patchedStates, entry.unsub);
+      } catch (e) {}
+    }
   }
 
   _syncEmbeddedMapCard() {
@@ -1544,6 +1601,7 @@ class PassableVehicleCard extends LitElement {
       this._mapCardEl = null;
       this._mapCardConfigKey = "";
       this._mapHassCache = null;
+      if (this._mapStatesSubscribers) this._mapStatesSubscribers.clear();
       return;
     }
     const entityId = host.dataset.entityId || "";
@@ -1571,6 +1629,7 @@ class PassableVehicleCard extends LitElement {
         host.replaceChildren(this._mapCardEl);
       }
       this._mapCardEl.hass = mapHass;
+      this._notifyMapStatesSubscribers(mapHass?.states);
       return;
     }
 
@@ -1602,14 +1661,16 @@ class PassableVehicleCard extends LitElement {
           hours_to_show: hours,
           theme_mode: "auto",
         });
-        el.hass = this._buildMapHass(
+        const freshHass = this._buildMapHass(
           entityId,
           markerImage,
           markerIcon,
           markerName
         );
+        el.hass = freshHass;
         this._mapCardEl = el;
         currentHost.replaceChildren(el);
+        this._notifyMapStatesSubscribers(freshHass?.states);
         clearTimeout(this._mapResizeTimer);
         this._mapResizeTimer = setTimeout(() => {
           window.dispatchEvent(new Event("resize"));
@@ -3377,6 +3438,8 @@ class PassableVehicleCard extends LitElement {
                           data-marker-image="${vehCfg.summary_image || vehCfg.image || ""}"
                           data-marker-icon="${vehCfg.icon || (vehCfg.fuel_type === "ice" ? "mdi:car" : "mdi:car-electric")}"
                           data-marker-name="${vehCfg.title || ""}"
+                          data-has-photo="${vehCfg.summary_image || vehCfg.image ? "true" : "false"}"
+                          @context-request=${this._onMapContextRequest}
                         ></div>
                       `
                     : html`
@@ -5906,6 +5969,9 @@ class PassableVehicleCard extends LitElement {
         --ha-card-border-width: 0;
         --ha-card-box-shadow: none;
         --ha-card-border-radius: 12px;
+      }
+      .vehicle-map-host[data-has-photo="true"] hui-map-card {
+        --ha-marker-background: #cbd5e1;
       }
       .vehicle-map-empty {
         display: flex;

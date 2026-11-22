@@ -5,6 +5,11 @@ All notable changes to **Passable Vehicle Card** will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.2] - 2026-11-22
+
+### Fixed
+- **Home Assistant 2026 `statesContext` Map Pin Interception**: Intercepted bubbling Lit Context `"context-request"` (`"states"`) events on `.vehicle-map-host` with a stable-unsubscribe subscription cache (`_onMapContextRequest` / `_notifyMapStatesSubscribers`) so `hui-map-card`, `ha-map`, and `ha-entity-marker` receive the vehicle's `entity_picture` and friendly title instead of reading unpatched root state, plus neutral marker backing for transparent-background vehicle PNGs.
+
 ## [2.1.1] - 2026-11-22
 
 ### Changed
