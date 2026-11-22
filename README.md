@@ -1,7 +1,7 @@
 # Passable Vehicle Card
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v2.0.0-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
+[![version](https://img.shields.io/badge/version-v2.1.0-blue.svg)](https://github.com/GBear09/passable-vehicle-card/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 A sleek, customizable, and universal vehicle dashboard card for Home Assistant aligned with the Passable Design System (`passable-hvac-card` & `passable-lighting-card`). Displays a compact, state-tinted vehicle summary directly on your dashboard and expands into a 4-tab **Command Center** modal/bottom sheet when tapped, featuring **custom drag-and-drop image upload**, **native Home Assistant `ha-entity-picker` Visual UI Editor support**, **direct vehicle climate & EVSE control**, **multi-vehicle support**, and **intelligent entity auto-discovery**.
@@ -18,7 +18,7 @@ A sleek, customizable, and universal vehicle dashboard card for Home Assistant a
   - **Optional 24h Battery Sparkline** (`show_sparkline: true`) and **Quick-Action Footer Strip** (Lock, Climate, Charge/Limit pills).
   - **Full Inline Mode** (`display_mode: full`) for dedicated vehicle sub-views with swipeable tabs.
 - 📱 **4-Tab Command Center Modal / Bottom Sheet** (with background scroll lock & `Escape` / swipe-down dismissal):
-  - **Overview**: Vehicle hero stage with dynamic charging beams, climate airflow, and engine-on motion streaks; closure & lock badges; circular battery ring; and 4-KPI grid (`12V Aux`, `Odometer`, `Tire Pressure`, `Next Service`).
+  - **Overview**: Vehicle hero stage with dynamic charging beams, climate airflow, and engine-on motion streaks; closure & lock badges; circular battery ring; 4-KPI grid (`12V Aux`, `Odometer`, `Tire Pressure`, `Next Service`); and expandable Location & Map card (auto-expands when Away, clickable from the Home/Away strip pill, with `Pin` / `2h` / `24h` route trail and Directions link).
   - **Climate**: Driver profile presets (save directly to dashboard config), target temperature & duration steppers, steering wheel heat, front/rear defrost, and individual seat heating/cooling tiles.
   - **Charge / Fuel**: AC & DC charging limit sliders, EVSE / wall charger current slider with live `~kW` estimation, optional vehicle AC current presets, ETA display, and Start/Stop controls.
   - **Health**: Doors, hood, trunk, and sunroof status grid; diagnostics & maintenance table (12V battery, TPMS, DTC count, washer fluid, key battery, odometer, next service, location); and one-tap cloud refresh.
@@ -75,7 +75,7 @@ vehicles:
 
 1. Download `passable-vehicle-card.js` from the [latest release](https://github.com/GBear09/passable-vehicle-card/releases).
 2. Copy `passable-vehicle-card.js` to your `www/` directory (`/config/www/passable-vehicle-card.js`).
-3. Add `/local/passable-vehicle-card.js?v=2.0.0` as a JavaScript Module under **Settings** → **Dashboards** → **Resources**.
+3. Add `/local/passable-vehicle-card.js?v=2.1.0` as a JavaScript Module under **Settings** → **Dashboards** → **Resources**.
 
 ---
 

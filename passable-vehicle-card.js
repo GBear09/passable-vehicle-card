@@ -1,15 +1,15 @@
 /**
  * Passable Vehicle Card
- * Version: 2.0.0
+ * Version: 2.1.0
  * GitHub: https://github.com/GBear09/passable-vehicle-card
  *
  * Compact summary dashboard card with a 4-tab Command Center popup (Overview, Climate,
  * Charge/Fuel, Health & Doors) aligned with Passable HVAC and Smart Lighting cards.
  * Supports Hero & Dual-Ring summary layouts, multi-vehicle configurations, optional
- * 24h battery sparkline, direct climate/EVSE controls, and drag-and-drop image upload.
+ * 24h battery sparkline, direct climate/EVSE controls, interactive Home/Away map, and drag-and-drop image upload.
  */
 
-const CARD_VERSION = "2.0.0";
+const CARD_VERSION = "2.1.0";
 
 const DEFAULT_CLIMATE_PROFILES = [
   {
@@ -149,6 +149,8 @@ class PassableVehicleCard extends LitElement {
       _stagingRevision: { state: true },
       _stagedEvseCurrent: { state: true },
       _stagedLimits: { state: true },
+      _mapExpandedOverrides: { state: true },
+      _mapTrailHours: { state: true },
     };
   }
 
@@ -166,6 +168,14 @@ class PassableVehicleCard extends LitElement {
     this._stagingRevision = 0;
     this._stagedEvseCurrent = null;
     this._stagedLimits = {};
+    this._mapExpandedOverrides = {};
+    this._mapTrailHours = 0;
+    this._pendingScrollToMap = false;
+    this._mapCardEl = null;
+    this._mapCardConfigKey = "";
+    this._mapCardHelpersPromise = null;
+    this._mapResizeTimer = null;
+    this._mapScrollTimer = null;
     this._countdownTimer = null;
     this._toastTimer = null;
     this._closeModalTimer = null;
@@ -243,6 +253,7 @@ class PassableVehicleCard extends LitElement {
       show_footer_strip: config.show_footer_strip !== false,
       show_sparkline: config.show_sparkline === true,
       sparkline_hours: Number(config.sparkline_hours) || 24,
+      auto_expand_map_away: config.auto_expand_map_away !== false,
       ...config,
     };
 
@@ -295,6 +306,12 @@ class PassableVehicleCard extends LitElement {
     clearTimeout(this._toastTimer);
     clearTimeout(this._closeModalTimer);
     clearTimeout(this._swipeResetTimer);
+    clearTimeout(this._mapResizeTimer);
+    clearTimeout(this._mapScrollTimer);
+    this._mapResizeTimer = null;
+    this._mapScrollTimer = null;
+    this._mapCardEl = null;
+    this._mapCardConfigKey = "";
   }
 
   firstUpdated(changedProps) {
@@ -319,6 +336,17 @@ class PassableVehicleCard extends LitElement {
     if (changedProps.has("hass") || changedProps.has("config")) {
       this._maybeFetchAllSparklines();
     }
+    this._syncEmbeddedMapCard();
+    if (this._pendingScrollToMap) {
+      const locCard = this.shadowRoot?.querySelector(".location-section-card");
+      if (locCard) {
+        this._pendingScrollToMap = false;
+        clearTimeout(this._mapScrollTimer);
+        this._mapScrollTimer = setTimeout(() => {
+          locCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 90);
+      }
+    }
   }
 
   shouldUpdate(changedProps) {
@@ -329,6 +357,9 @@ class PassableVehicleCard extends LitElement {
     const oldHass = changedProps.get("hass");
     const newHass = this.hass;
     if (!oldHass || !newHass || !oldHass.states || !newHass.states || !this.config) {
+      return true;
+    }
+    if (this._mapCardEl && oldHass.themes?.darkMode !== newHass.themes?.darkMode) {
       return true;
     }
 
@@ -1022,15 +1053,44 @@ class PassableVehicleCard extends LitElement {
 
     const locationObj = getSt(entities.location);
     let locationLabel = "";
-    if (locationObj && locationObj.state && !["unavailable", "unknown"].includes(locationObj.state)) {
+    const rawLocationState =
+      locationObj &&
+      locationObj.state &&
+      !["unavailable", "unknown"].includes(locationObj.state)
+        ? String(locationObj.state).toLowerCase()
+        : "";
+    if (rawLocationState) {
       const rawLoc = String(locationObj.state);
       locationLabel =
-        rawLoc === "home"
+        rawLocationState === "home"
           ? "Home"
-          : rawLoc === "not_home"
+          : rawLocationState === "not_home"
           ? "Away"
           : rawLoc.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
     }
+    const latNum =
+      locationObj?.attributes?.latitude !== undefined &&
+      locationObj?.attributes?.latitude !== null
+        ? Number(locationObj.attributes.latitude)
+        : NaN;
+    const lngNum =
+      locationObj?.attributes?.longitude !== undefined &&
+      locationObj?.attributes?.longitude !== null
+        ? Number(locationObj.attributes.longitude)
+        : NaN;
+    const locationLat = Number.isFinite(latNum) ? latNum : null;
+    const locationLng = Number.isFinite(lngNum) ? lngNum : null;
+    const hasLocationCoords = locationLat !== null && locationLng !== null;
+    const isAway = Boolean(rawLocationState && rawLocationState !== "home");
+    const locationIcon =
+      rawLocationState === "home"
+        ? "mdi:home-map-marker"
+        : isAway
+        ? "mdi:map-marker-radius"
+        : "mdi:map-marker-outline";
+    const locationUpdatedRel = locationObj
+      ? this._computeRelativeTime(locationObj.last_updated || locationObj.last_changed)
+      : "";
 
     const closures = [
       { id: entities.door_fl, name: "Driver Door", short: "Driver", icon: "mdi:car-door" },
@@ -1123,6 +1183,13 @@ class PassableVehicleCard extends LitElement {
       relativeTime,
       chargeEta,
       locationLabel,
+      rawLocationState,
+      locationLat,
+      locationLng,
+      hasLocationCoords,
+      isAway,
+      locationIcon,
+      locationUpdatedRel,
       closures,
       openClosures,
       hasLowBattery,
@@ -1333,6 +1400,135 @@ class PassableVehicleCard extends LitElement {
     }, 2800);
   }
 
+  _resetMapState() {
+    clearTimeout(this._mapResizeTimer);
+    clearTimeout(this._mapScrollTimer);
+    this._mapResizeTimer = null;
+    this._mapScrollTimer = null;
+    this._mapExpandedOverrides = {};
+    this._pendingScrollToMap = false;
+    this._mapCardEl = null;
+    this._mapCardConfigKey = "";
+  }
+
+  _getIsMapExpanded(snap) {
+    const key = snap?.vehCfg?.key || "vehicle_0";
+    if (
+      this._mapExpandedOverrides &&
+      Object.prototype.hasOwnProperty.call(this._mapExpandedOverrides, key)
+    ) {
+      return Boolean(this._mapExpandedOverrides[key]);
+    }
+    return Boolean(
+      this.config?.auto_expand_map_away !== false &&
+        snap?.isAway &&
+        (snap?.hasLocationCoords || snap?.entities?.location)
+    );
+  }
+
+  _toggleLocationMap(vehKey, currentExpanded, ev = null) {
+    if (ev) ev.stopPropagation();
+    this._fireHaptic("light");
+    this._mapExpandedOverrides = {
+      ...(this._mapExpandedOverrides || {}),
+      [vehKey]: !currentExpanded,
+    };
+  }
+
+  _setMapTrailHours(hours, ev = null) {
+    if (ev) ev.stopPropagation();
+    this._fireHaptic("light");
+    this._mapTrailHours = Number(hours) || 0;
+  }
+
+  _openLocationModal(vehIdx = 0, ev = null) {
+    if (ev) ev.stopPropagation();
+    const vehicles = this._getVehicles();
+    const veh = vehicles[vehIdx] || vehicles[0];
+    const vehKey = veh?.key || `vehicle_${vehIdx}`;
+    this._mapExpandedOverrides = {
+      ...(this._mapExpandedOverrides || {}),
+      [vehKey]: true,
+    };
+    this._pendingScrollToMap = true;
+    this._openModal(vehIdx, "overview", ev);
+  }
+
+  _getExternalMapsUrl(lat, lng, label = "Vehicle") {
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+    const isApple = /iPad|iPhone|iPod|Macintosh/i.test(ua) && !/Android/i.test(ua);
+    if (isApple) {
+      return `https://maps.apple.com/?ll=${lat},${lng}&q=${encodeURIComponent(
+        label || "Vehicle"
+      )}`;
+    }
+    return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  }
+
+  _syncEmbeddedMapCard() {
+    const host = this.shadowRoot?.querySelector(".vehicle-map-host");
+    if (!host) {
+      this._mapCardEl = null;
+      this._mapCardConfigKey = "";
+      return;
+    }
+    const entityId = host.dataset.entityId || "";
+    const hours = Number(host.dataset.hours) || 0;
+    const darkKey = this.hass?.themes?.darkMode ? "dark" : "light";
+    if (!entityId) return;
+
+    const configKey = `${entityId}|${hours}|${darkKey}`;
+    if (this._mapCardEl && this._mapCardConfigKey === configKey) {
+      if (this._mapCardEl.parentNode !== host) {
+        host.replaceChildren(this._mapCardEl);
+      }
+      this._mapCardEl.hass = this.hass;
+      return;
+    }
+
+    this._mapCardConfigKey = configKey;
+    if (typeof window.loadCardHelpers !== "function") {
+      const msg = document.createElement("div");
+      msg.className = "vehicle-map-empty";
+      msg.textContent = "Map preview requires Home Assistant Lovelace";
+      host.replaceChildren(msg);
+      return;
+    }
+
+    this._mapCardHelpersPromise =
+      this._mapCardHelpersPromise || window.loadCardHelpers();
+    this._mapCardHelpersPromise
+      .then((helpers) => {
+        const currentHost = this.shadowRoot?.querySelector(".vehicle-map-host");
+        if (!currentHost || this._mapCardConfigKey !== configKey) return;
+        const el = helpers.createCardElement({
+          type: "map",
+          entities: [entityId],
+          default_zoom: 15,
+          aspect_ratio: "16:10",
+          auto_fit: true,
+          fit_zones: false,
+          hours_to_show: hours,
+          theme_mode: "auto",
+        });
+        el.hass = this.hass;
+        this._mapCardEl = el;
+        currentHost.replaceChildren(el);
+        clearTimeout(this._mapResizeTimer);
+        this._mapResizeTimer = setTimeout(() => {
+          window.dispatchEvent(new Event("resize"));
+        }, 320);
+      })
+      .catch((err) => {
+        const currentHost = this.shadowRoot?.querySelector(".vehicle-map-host");
+        if (!currentHost || this._mapCardConfigKey !== configKey) return;
+        const msg = document.createElement("div");
+        msg.className = "vehicle-map-empty";
+        msg.textContent = `Unable to load map card (${err?.message || "unknown error"})`;
+        currentHost.replaceChildren(msg);
+      });
+  }
+
   _openModal(vehIdx = 0, tab = "overview", ev = null) {
     if (ev) ev.stopPropagation();
     this._fireHaptic("light");
@@ -1362,6 +1558,7 @@ class PassableVehicleCard extends LitElement {
       this._modalOpen = false;
       this._detachOverlayScrollGuard();
       this._unlockBackgroundScroll();
+      this._resetMapState();
       this.requestUpdate();
     }, 180);
   }
@@ -1504,8 +1701,17 @@ class PassableVehicleCard extends LitElement {
     const path = typeof ev.composedPath === "function" ? ev.composedPath() : [];
     return path.some((el) => {
       if (!el || el.nodeType !== 1) return false;
-      if (el.tagName === "HA-SLIDER" || el.tagName === "SELECT") return true;
+      if (
+        el.tagName === "HA-SLIDER" ||
+        el.tagName === "SELECT" ||
+        el.tagName === "HA-MAP" ||
+        el.tagName === "HUI-MAP-CARD"
+      ) {
+        return true;
+      }
       if (el.tagName === "INPUT" && el.type === "range") return true;
+      if (el.dataset && el.dataset.mapHost === "true") return true;
+      if (el.classList && el.classList.contains("leaflet-container")) return true;
       return false;
     });
   }
@@ -1675,6 +1881,7 @@ class PassableVehicleCard extends LitElement {
         this._modalOpen = false;
         this._detachOverlayScrollGuard();
         this._unlockBackgroundScroll();
+        this._resetMapState();
         this.requestUpdate();
       }, 180);
     } else if (wasDragging) {
@@ -2215,10 +2422,15 @@ class PassableVehicleCard extends LitElement {
           ${primary.locationLabel
             ? html`
                 <span class="summary-sep">•</span>
-                <span class="summary-meta-pill" title="Vehicle Location">
-                  <ha-icon icon="mdi:map-marker-outline"></ha-icon>
+                <button
+                  type="button"
+                  class="summary-meta-pill clickable ${primary.isAway ? "away" : "home"}"
+                  @click=${(e) => this._openLocationModal(primary.idx, e)}
+                  title="View ${primary.vehCfg.title} location on map"
+                >
+                  <ha-icon icon="${primary.locationIcon}"></ha-icon>
                   <span>${primary.locationLabel}</span>
-                </span>
+                </button>
               `
             : ""}
         </div>
@@ -2330,6 +2542,19 @@ class PassableVehicleCard extends LitElement {
     if (snap.isClimateOn) {
       chips.push(
         html`<span class="zone-inline-chip info">${snap.climateTemp}°F</span>`
+      );
+    }
+    if (this._getVehicles().length > 1 && snap.locationLabel) {
+      chips.push(
+        html`<button
+          type="button"
+          class="zone-inline-chip location clickable ${snap.isAway ? "away" : ""}"
+          @click=${(e) => this._openLocationModal(snap.idx, e)}
+          title="View ${vehCfg.title} on map"
+        >
+          <ha-icon icon="${snap.locationIcon}" style="--mdc-icon-size:11px;"></ha-icon>
+          <span>${snap.locationLabel}</span>
+        </button>`
       );
     }
 
@@ -2888,6 +3113,8 @@ class PassableVehicleCard extends LitElement {
           </div>
         </div>
 
+        ${this._renderLocationSection(snap)}
+
         <div class="passable-section-card quick-actions-banner">
           <div>
             <div class="passable-section-title">Quick Actions</div>
@@ -2913,6 +3140,159 @@ class PassableVehicleCard extends LitElement {
             </button>
           </div>
         </div>
+      </div>
+    `;
+  }
+
+  _renderLocationSection(snap) {
+    const { vehCfg, entities } = snap;
+    if (!entities.location && !snap.locationLabel && !snap.hasLocationCoords) {
+      return html``;
+    }
+    const isExpanded = this._getIsMapExpanded(snap);
+    const mapsUrl = snap.hasLocationCoords
+      ? this._getExternalMapsUrl(
+          snap.locationLat,
+          snap.locationLng,
+          vehCfg.title
+        )
+      : "";
+    const badgeTone = snap.isAway
+      ? "away"
+      : snap.rawLocationState === "home"
+      ? "home"
+      : "neutral";
+    const coordsText =
+      snap.hasLocationCoords && (snap.isAway || isExpanded)
+        ? `${snap.locationLat.toFixed(4)}, ${snap.locationLng.toFixed(4)}`
+        : "";
+    const updatedText =
+      snap.locationUpdatedRel && snap.locationUpdatedRel !== "Never"
+        ? `Updated ${snap.locationUpdatedRel}`
+        : `Updated ${snap.relativeTime}`;
+    const subText = coordsText ? `${updatedText} · ${coordsText}` : updatedText;
+
+    return html`
+      <div
+        class="passable-section-card location-section-card ${isExpanded ? "expanded" : ""}"
+      >
+        <div
+          class="location-card-header"
+          @click=${() => this._toggleLocationMap(vehCfg.key, isExpanded)}
+          title="${isExpanded ? "Collapse vehicle map" : "Expand vehicle map"}"
+        >
+          <div class="location-identity">
+            <div class="location-badge-icon ${badgeTone}">
+              <ha-icon icon="${snap.locationIcon}"></ha-icon>
+            </div>
+            <div class="location-title-group">
+              <div class="location-title-row">
+                <span class="passable-section-title">Location</span>
+                <span class="location-status-chip ${badgeTone}">
+                  ${snap.locationLabel || "Tracked"}
+                </span>
+              </div>
+              <div class="location-sub-text">${subText}</div>
+            </div>
+          </div>
+
+          <div class="location-header-actions">
+            ${snap.hasLocationCoords
+              ? html`
+                  <a
+                    class="location-directions-btn"
+                    href="${mapsUrl}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    @click=${(e) => e.stopPropagation()}
+                    title="Open directions in Maps"
+                  >
+                    <ha-icon icon="mdi:directions"></ha-icon>
+                    <span>Directions</span>
+                  </a>
+                `
+              : ""}
+            <button
+              type="button"
+              class="location-toggle-btn ${isExpanded ? "active" : ""}"
+              aria-expanded="${isExpanded ? "true" : "false"}"
+              @click=${(e) => this._toggleLocationMap(vehCfg.key, isExpanded, e)}
+              title="${isExpanded ? "Hide map" : "Show map"}"
+            >
+              <span>${isExpanded ? "Hide" : "Map"}</span>
+              <ha-icon
+                icon="${isExpanded ? "mdi:chevron-up" : "mdi:chevron-down"}"
+              ></ha-icon>
+            </button>
+          </div>
+        </div>
+
+        ${isExpanded
+          ? html`
+              <div class="location-map-body">
+                <div class="location-map-toolbar">
+                  <div class="location-trail-meta">
+                    <span class="location-trail-label">Route trail</span>
+                    <div
+                      class="map-trail-group"
+                      role="group"
+                      aria-label="Route history range"
+                    >
+                      ${[
+                        { hours: 0, label: "Pin" },
+                        { hours: 2, label: "2h" },
+                        { hours: 24, label: "24h" },
+                      ].map(
+                        (opt) => html`
+                          <button
+                            type="button"
+                            class="map-trail-btn ${this._mapTrailHours === opt.hours ? "active" : ""}"
+                            aria-pressed="${this._mapTrailHours === opt.hours ? "true" : "false"}"
+                            @click=${(e) => this._setMapTrailHours(opt.hours, e)}
+                          >
+                            ${opt.label}
+                          </button>
+                        `
+                      )}
+                    </div>
+                  </div>
+                  ${entities.location
+                    ? html`
+                        <button
+                          type="button"
+                          class="location-info-btn"
+                          @click=${(e) => this._moreInfo(entities.location, e)}
+                          title="Location entity history"
+                        >
+                          <ha-icon icon="mdi:information-outline"></ha-icon>
+                        </button>
+                      `
+                    : ""}
+                </div>
+
+                <div class="vehicle-map-wrap">
+                  ${snap.hasLocationCoords && entities.location
+                    ? html`
+                        <div
+                          class="vehicle-map-host"
+                          data-map-host="true"
+                          data-entity-id="${entities.location}"
+                          data-hours="${this._mapTrailHours}"
+                        ></div>
+                      `
+                    : html`
+                        <div class="vehicle-map-empty">
+                          <ha-icon icon="mdi:map-marker-off-outline"></ha-icon>
+                          <span>
+                            No GPS coordinates currently reported by
+                            ${entities.location || "location tracker"}.
+                          </span>
+                        </div>
+                      `}
+                </div>
+              </div>
+            `
+          : ""}
       </div>
     `;
   }
@@ -4092,6 +4472,32 @@ class PassableVehicleCard extends LitElement {
       .summary-meta-pill ha-icon {
         --mdc-icon-size: 14px;
       }
+      .summary-meta-pill.clickable {
+        appearance: none;
+        font-family: inherit;
+        background: var(--card-background-color, rgba(128, 128, 128, 0.1));
+        border: 1px solid var(--divider-color, rgba(128, 128, 128, 0.22));
+        border-radius: 999px;
+        padding: 2px 8px;
+        line-height: 1.25;
+        cursor: pointer;
+        transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+      }
+      .summary-meta-pill.clickable:hover {
+        border-color: var(--primary-color, #03a9f4);
+        color: var(--primary-text-color);
+      }
+      .summary-meta-pill.clickable.home ha-icon {
+        color: #16a34a;
+      }
+      .summary-meta-pill.clickable.away {
+        background: rgba(14, 165, 233, 0.12);
+        border-color: rgba(14, 165, 233, 0.34);
+        color: #0284c7;
+      }
+      .summary-meta-pill.clickable.away:hover {
+        background: rgba(14, 165, 233, 0.2);
+      }
       .summary-updated-text {
         font-size: 12px;
         font-weight: 600;
@@ -4563,6 +4969,16 @@ class PassableVehicleCard extends LitElement {
         background: rgba(99, 102, 241, 0.16);
         color: #6366f1;
         border-color: rgba(99, 102, 241, 0.36);
+      }
+      .zone-inline-chip.location {
+        background: rgba(34, 197, 94, 0.14);
+        color: #16a34a;
+        border-color: rgba(34, 197, 94, 0.32);
+      }
+      .zone-inline-chip.location.away {
+        background: rgba(14, 165, 233, 0.16);
+        color: #0284c7;
+        border-color: rgba(14, 165, 233, 0.34);
       }
 
       .vehicle-footer-strip {
@@ -5176,6 +5592,235 @@ class PassableVehicleCard extends LitElement {
         background: var(--primary-color, #3b82f6);
         border-color: var(--primary-color, #3b82f6);
         color: var(--text-primary-color, #ffffff);
+      }
+
+      /* LOCATION & EMBEDDED MAP SECTION */
+      .location-section-card {
+        gap: 10px;
+      }
+      .location-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 10px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .location-identity {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        flex: 1 1 180px;
+      }
+      .location-badge-icon {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        background: rgba(128, 128, 128, 0.14);
+        color: var(--secondary-text-color);
+      }
+      .location-badge-icon ha-icon {
+        --mdc-icon-size: 18px;
+      }
+      .location-badge-icon.home {
+        background: rgba(34, 197, 94, 0.15);
+        color: #16a34a;
+      }
+      .location-badge-icon.away {
+        background: rgba(14, 165, 233, 0.16);
+        color: #0284c7;
+      }
+      .location-title-group {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .location-title-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .location-status-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px 7px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.3;
+        background: rgba(128, 128, 128, 0.14);
+        color: var(--secondary-text-color);
+        border: 1px solid rgba(128, 128, 128, 0.24);
+      }
+      .location-status-chip.home {
+        background: rgba(34, 197, 94, 0.14);
+        color: #16a34a;
+        border-color: rgba(34, 197, 94, 0.32);
+      }
+      .location-status-chip.away {
+        background: rgba(14, 165, 233, 0.15);
+        color: #0284c7;
+        border-color: rgba(14, 165, 233, 0.34);
+      }
+      .location-sub-text {
+        font-size: 12px;
+        color: var(--secondary-text-color);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .location-header-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      .location-directions-btn,
+      .location-toggle-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 5px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--divider-color, rgba(128, 128, 128, 0.22));
+        background: var(--card-background-color, rgba(128, 128, 128, 0.1));
+        color: var(--primary-text-color);
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.25;
+        text-decoration: none;
+        cursor: pointer;
+        transition: border-color 0.15s ease, background-color 0.15s ease;
+      }
+      .location-directions-btn ha-icon,
+      .location-toggle-btn ha-icon {
+        --mdc-icon-size: 15px;
+      }
+      .location-directions-btn:hover,
+      .location-toggle-btn:hover {
+        border-color: var(--primary-color, #03a9f4);
+      }
+      .location-toggle-btn.active {
+        background: var(--primary-color, #3b82f6);
+        border-color: var(--primary-color, #3b82f6);
+        color: var(--text-primary-color, #ffffff);
+      }
+      .location-map-body {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--divider-color, rgba(128, 128, 128, 0.16));
+      }
+      .location-map-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .location-trail-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .location-trail-label {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--secondary-text-color);
+      }
+      .map-trail-group {
+        display: inline-flex;
+        align-items: center;
+        background: var(--card-background-color, rgba(128, 128, 128, 0.12));
+        border: 1px solid var(--divider-color, rgba(128, 128, 128, 0.2));
+        border-radius: 9px;
+        padding: 2px;
+        gap: 2px;
+      }
+      .map-trail-btn {
+        border: none;
+        background: transparent;
+        color: var(--secondary-text-color);
+        font-family: inherit;
+        font-size: 11.5px;
+        font-weight: 700;
+        padding: 3px 9px;
+        border-radius: 7px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .map-trail-btn:hover {
+        color: var(--primary-text-color);
+      }
+      .map-trail-btn.active {
+        background: var(--primary-color, #3b82f6);
+        color: var(--text-primary-color, #ffffff);
+      }
+      .location-info-btn {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 1px solid var(--divider-color, rgba(128, 128, 128, 0.2));
+        background: var(--card-background-color, rgba(128, 128, 128, 0.1));
+        color: var(--secondary-text-color);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+      }
+      .location-info-btn:hover {
+        color: var(--primary-text-color);
+        border-color: var(--primary-color, #03a9f4);
+      }
+      .location-info-btn ha-icon {
+        --mdc-icon-size: 16px;
+      }
+      .vehicle-map-wrap {
+        width: 100%;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid var(--divider-color, rgba(128, 128, 128, 0.22));
+        background: var(--card-background-color, rgba(128, 128, 128, 0.08));
+      }
+      .vehicle-map-host {
+        display: block;
+        width: 100%;
+        min-height: 210px;
+        touch-action: pan-x pan-y pinch-zoom;
+      }
+      .vehicle-map-host hui-map-card {
+        display: block;
+        width: 100%;
+        --ha-card-border-width: 0;
+        --ha-card-box-shadow: none;
+        --ha-card-border-radius: 12px;
+      }
+      .vehicle-map-empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 20px 14px;
+        font-size: 12.5px;
+        color: var(--secondary-text-color);
+        text-align: center;
+      }
+      .vehicle-map-empty ha-icon {
+        --mdc-icon-size: 18px;
+        flex-shrink: 0;
       }
 
       /* CLIMATE TAB */
@@ -6141,6 +6786,18 @@ class PassableVehicleCardEditor extends LitElement {
             <ha-switch
               .checked=${c.show_sparkline === true}
               .configValue=${"show_sparkline"}
+              @change=${this._valueChanged}
+            ></ha-switch>
+          </div>
+
+          <div class="toggle-row">
+            <div class="label-group">
+              <span class="label">Auto-Expand Map When Away</span>
+              <span class="help-text">Automatically expand the Overview location map when the vehicle is away from Home</span>
+            </div>
+            <ha-switch
+              .checked=${c.auto_expand_map_away !== false}
+              .configValue=${"auto_expand_map_away"}
               @change=${this._valueChanged}
             ></ha-switch>
           </div>

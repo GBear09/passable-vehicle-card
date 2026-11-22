@@ -5,6 +5,15 @@ All notable changes to **Passable Vehicle Card** will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-11-22
+
+### Added
+- **Clickable Home / Away Pill & Expandable Overview Map**: Clicking the **Home / Away** location pill in the summary strip (or location chip on multi-vehicle cards) opens the Command Center directly to **Overview** with an embedded native Home Assistant `map` card expanded and scrolled smoothly into view.
+- **Route History Trail Selector**: Added a segmented `Pin` / `2h` / `24h` trail switcher inside the expanded location card to view recent GPS movement right inside the popup.
+- **Cross-Platform Directions Link**: Added a one-tap **Directions** button on the Location section header opening Apple Maps (Apple devices) or Google Maps (Android/Desktop) at the vehicle's live coordinates.
+- **Auto-Expand When Away (`auto_expand_map_away`)**: Enabled by default (`true`, toggleable in the visual editor) so the Overview map stays compact at Home and automatically expands whenever the vehicle is Away.
+- **Map Gesture Isolation**: Excluded embedded `ha-map` / `hui-map-card` / `.leaflet-container` surfaces from swipe-to-dismiss and horizontal tab swipe handlers so mobile panning and zooming never accidentally close or swipe the modal.
+
 ## [2.0.0] - 2026-11-21
 
 ### Added
