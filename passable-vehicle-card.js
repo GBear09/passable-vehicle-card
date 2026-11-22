@@ -1,6 +1,6 @@
 /**
  * Passable Vehicle Card
- * Version: 2.1.3
+ * Version: 2.1.4
  * GitHub: https://github.com/GBear09/passable-vehicle-card
  *
  * Compact summary dashboard card with a 4-tab Command Center popup (Overview, Climate,
@@ -9,7 +9,7 @@
  * 24h battery sparkline, direct climate/EVSE controls, interactive Home/Away map, and drag-and-drop image upload.
  */
 
-const CARD_VERSION = "2.1.3";
+const CARD_VERSION = "2.1.4";
 
 const DEFAULT_CLIMATE_PROFILES = [
   {
@@ -175,6 +175,8 @@ class PassableVehicleCard extends LitElement {
     this._mapCardConfigKey = "";
     this._mapHassCache = null;
     this._mapStatesSubscribers = new Map();
+    this._squaredMarkerImages = new Map();
+    this._squaredMarkerPending = new Set();
     this._mapCardHelpersPromise = null;
     this._mapResizeTimer = null;
     this._mapScrollTimer = null;
@@ -1555,9 +1557,10 @@ class PassableVehicleCard extends LitElement {
     const markerImage = host?.dataset?.markerImage || "";
     const markerIcon = host?.dataset?.markerIcon || "";
     const markerName = host?.dataset?.markerName || "";
+    const effectiveMarkerImage = this._resolveEffectiveMarkerImage(markerImage);
     const mapHass = this._buildMapHass(
       entityId,
-      markerImage,
+      effectiveMarkerImage,
       markerIcon,
       markerName
     );
@@ -1595,41 +1598,123 @@ class PassableVehicleCard extends LitElement {
     }
   }
 
-  _injectMapMarkerStyle(el, hasPhoto) {
-    const applyStyle = () => {
-      const root = el?.shadowRoot;
-      if (!root) return;
-      let styleEl = root.querySelector('style[data-pvc-map-style="true"]');
-      if (!hasPhoto) {
-        if (styleEl) styleEl.remove();
+  _resolveEffectiveMarkerImage(srcUrl) {
+    if (!srcUrl) return "";
+    if (this._squaredMarkerImages && this._squaredMarkerImages.has(srcUrl)) {
+      return this._squaredMarkerImages.get(srcUrl);
+    }
+    this._ensureSquaredMarkerImage(srcUrl);
+    return srcUrl;
+  }
+
+  _ensureSquaredMarkerImage(srcUrl) {
+    if (
+      !srcUrl ||
+      srcUrl.startsWith("data:") ||
+      !this._squaredMarkerImages ||
+      this._squaredMarkerImages.has(srcUrl) ||
+      !this._squaredMarkerPending ||
+      this._squaredMarkerPending.has(srcUrl) ||
+      typeof Image === "undefined" ||
+      typeof document === "undefined"
+    ) {
+      return;
+    }
+    this._squaredMarkerPending.add(srcUrl);
+    const img = new Image();
+    if (
+      /^https?:\/\//i.test(srcUrl) &&
+      typeof window !== "undefined" &&
+      window.location &&
+      !srcUrl.startsWith(window.location.origin)
+    ) {
+      img.crossOrigin = "anonymous";
+    }
+    img.onload = () => {
+      this._squaredMarkerPending.delete(srcUrl);
+      const nw = img.naturalWidth;
+      const nh = img.naturalHeight;
+      if (!nw || !nh) {
+        this._squaredMarkerImages.set(srcUrl, srcUrl);
         return;
       }
-      if (!styleEl) {
-        styleEl = document.createElement("style");
-        styleEl.dataset.pvcMapStyle = "true";
-        root.appendChild(styleEl);
+      try {
+        let sx = 0;
+        let sy = 0;
+        let sw = nw;
+        let sh = nh;
+
+        try {
+          const scanMax = 256;
+          const scanScale = Math.min(1, scanMax / Math.max(nw, nh));
+          const aw = Math.max(1, Math.round(nw * scanScale));
+          const ah = Math.max(1, Math.round(nh * scanScale));
+          const scanCanvas = document.createElement("canvas");
+          scanCanvas.width = aw;
+          scanCanvas.height = ah;
+          const scanCtx = scanCanvas.getContext("2d");
+          if (scanCtx) {
+            scanCtx.drawImage(img, 0, 0, aw, ah);
+            const data = scanCtx.getImageData(0, 0, aw, ah).data;
+            let minX = aw;
+            let minY = ah;
+            let maxX = -1;
+            let maxY = -1;
+            for (let y = 0; y < ah; y++) {
+              const rowOffset = y * aw * 4;
+              for (let x = 0; x < aw; x++) {
+                if (data[rowOffset + x * 4 + 3] > 16) {
+                  if (x < minX) minX = x;
+                  if (x > maxX) maxX = x;
+                  if (y < minY) minY = y;
+                  if (y > maxY) maxY = y;
+                }
+              }
+            }
+            if (maxX >= minX && maxY >= minY) {
+              const invX = nw / aw;
+              const invY = nh / ah;
+              sx = Math.max(0, Math.floor(minX * invX));
+              sy = Math.max(0, Math.floor(minY * invY));
+              const ex = Math.min(nw, Math.ceil((maxX + 1) * invX));
+              const ey = Math.min(nh, Math.ceil((maxY + 1) * invY));
+              sw = Math.max(1, ex - sx);
+              sh = Math.max(1, ey - sy);
+            }
+          }
+        } catch (trimErr) {}
+
+        const size = 128;
+        const pad = 8;
+        const maxDim = size - pad * 2;
+        const outCanvas = document.createElement("canvas");
+        outCanvas.width = size;
+        outCanvas.height = size;
+        const outCtx = outCanvas.getContext("2d");
+        if (!outCtx) {
+          this._squaredMarkerImages.set(srcUrl, srcUrl);
+          return;
+        }
+        outCtx.imageSmoothingEnabled = true;
+        outCtx.imageSmoothingQuality = "high";
+        const scale = Math.min(maxDim / sw, maxDim / sh);
+        const dw = sw * scale;
+        const dh = sh * scale;
+        const dx = (size - dw) / 2;
+        const dy = (size - dh) / 2;
+        outCtx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+        const dataUrl = outCanvas.toDataURL("image/png");
+        this._squaredMarkerImages.set(srcUrl, dataUrl || srcUrl);
+        this._syncEmbeddedMapCard();
+      } catch (e) {
+        this._squaredMarkerImages.set(srcUrl, srcUrl);
       }
-      styleEl.textContent = `
-        ha-map::part(marker) {
-          padding: 3px;
-          background: radial-gradient(
-            circle at 50% 45%,
-            rgba(148, 163, 184, 0.24) 0%,
-            var(--ha-card-background, var(--card-background-color, #1e293b)) 78%
-          ) !important;
-        }
-        ha-map::part(picture) {
-          background-size: contain !important;
-          background-position: center !important;
-          background-repeat: no-repeat !important;
-          border-radius: 6px;
-        }
-      `;
     };
-    applyStyle();
-    if (el?.updateComplete && typeof el.updateComplete.then === "function") {
-      el.updateComplete.then(applyStyle).catch(() => {});
-    }
+    img.onerror = () => {
+      this._squaredMarkerPending.delete(srcUrl);
+      this._squaredMarkerImages.set(srcUrl, srcUrl);
+    };
+    img.src = srcUrl;
   }
 
   _syncEmbeddedMapCard() {
@@ -1649,6 +1734,7 @@ class PassableVehicleCard extends LitElement {
     const darkKey = this.hass?.themes?.darkMode ? "dark" : "light";
     if (!entityId) return;
 
+    const effectiveMarkerImage = this._resolveEffectiveMarkerImage(markerImage);
     const hasPhoto = Boolean(
       markerImage || this.hass?.states?.[entityId]?.attributes?.entity_picture
     );
@@ -1657,7 +1743,7 @@ class PassableVehicleCard extends LitElement {
     }|${markerImage}|${markerIcon}|${markerName}`;
     const mapHass = this._buildMapHass(
       entityId,
-      markerImage,
+      effectiveMarkerImage,
       markerIcon,
       markerName
     );
@@ -1667,7 +1753,6 @@ class PassableVehicleCard extends LitElement {
       }
       this._mapCardEl.hass = mapHass;
       this._notifyMapStatesSubscribers(mapHass?.states);
-      this._injectMapMarkerStyle(this._mapCardEl, hasPhoto);
       return;
     }
 
@@ -1699,9 +1784,10 @@ class PassableVehicleCard extends LitElement {
           hours_to_show: hours,
           theme_mode: "auto",
         });
+        const freshMarkerImage = this._resolveEffectiveMarkerImage(markerImage);
         const freshHass = this._buildMapHass(
           entityId,
-          markerImage,
+          freshMarkerImage,
           markerIcon,
           markerName
         );
@@ -1709,7 +1795,6 @@ class PassableVehicleCard extends LitElement {
         this._mapCardEl = el;
         currentHost.replaceChildren(el);
         this._notifyMapStatesSubscribers(freshHass?.states);
-        this._injectMapMarkerStyle(el, hasPhoto);
         clearTimeout(this._mapResizeTimer);
         this._mapResizeTimer = setTimeout(() => {
           window.dispatchEvent(new Event("resize"));
@@ -1733,6 +1818,9 @@ class PassableVehicleCard extends LitElement {
     this._activeVehicleIndex = vehIdx;
     this._currentView = tab || "overview";
     this._animDirection = "none";
+    const veh = this._getVehicles()[vehIdx];
+    const rawImg = veh?.summary_image || veh?.image || "";
+    if (rawImg) this._ensureSquaredMarkerImage(rawImg);
     if (this.config?.display_mode === "full") {
       this.requestUpdate();
       return;

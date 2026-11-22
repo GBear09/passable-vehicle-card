@@ -5,6 +5,11 @@ All notable changes to **Passable Vehicle Card** will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.4] - 2026-11-22
+
+### Fixed
+- **1:1 Square Auto-Fitted Map Pin Image**: Added client-side transparent bounding-box trimming and centered `128×128` square canvas pre-fitting (`_ensureSquaredMarkerImage`) before passing the vehicle photo as `entity_picture`, ensuring Home Assistant's square `background-size: cover` marker pin displays the entire vehicle uncropped across all HA versions and map engines without Shadow DOM CSS part fragility.
+
 ## [2.1.3] - 2026-11-22
 
 ### Fixed
