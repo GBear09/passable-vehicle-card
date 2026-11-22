@@ -1,6 +1,6 @@
 /**
  * Passable Vehicle Card
- * Version: 2.1.0
+ * Version: 2.1.1
  * GitHub: https://github.com/GBear09/passable-vehicle-card
  *
  * Compact summary dashboard card with a 4-tab Command Center popup (Overview, Climate,
@@ -9,7 +9,7 @@
  * 24h battery sparkline, direct climate/EVSE controls, interactive Home/Away map, and drag-and-drop image upload.
  */
 
-const CARD_VERSION = "2.1.0";
+const CARD_VERSION = "2.1.1";
 
 const DEFAULT_CLIMATE_PROFILES = [
   {
@@ -173,6 +173,7 @@ class PassableVehicleCard extends LitElement {
     this._pendingScrollToMap = false;
     this._mapCardEl = null;
     this._mapCardConfigKey = "";
+    this._mapHassCache = null;
     this._mapCardHelpersPromise = null;
     this._mapResizeTimer = null;
     this._mapScrollTimer = null;
@@ -312,6 +313,7 @@ class PassableVehicleCard extends LitElement {
     this._mapScrollTimer = null;
     this._mapCardEl = null;
     this._mapCardConfigKey = "";
+    this._mapHassCache = null;
   }
 
   firstUpdated(changedProps) {
@@ -1409,6 +1411,7 @@ class PassableVehicleCard extends LitElement {
     this._pendingScrollToMap = false;
     this._mapCardEl = null;
     this._mapCardConfigKey = "";
+    this._mapHassCache = null;
   }
 
   _getIsMapExpanded(snap) {
@@ -1465,24 +1468,109 @@ class PassableVehicleCard extends LitElement {
     return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
   }
 
+  _buildMapHass(entityId, markerImage, markerIcon, markerName) {
+    const baseHass = this.hass;
+    if (
+      !baseHass ||
+      !baseHass.states ||
+      !entityId ||
+      !baseHass.states[entityId]
+    ) {
+      return baseHass;
+    }
+    const orig = baseHass.states[entityId];
+    const cache = this._mapHassCache;
+    if (
+      cache &&
+      cache.baseHass === baseHass &&
+      cache.entityId === entityId &&
+      cache.origState === orig &&
+      cache.markerImage === markerImage &&
+      cache.markerIcon === markerIcon &&
+      cache.markerName === markerName
+    ) {
+      return cache.mapHass;
+    }
+
+    let patchedState;
+    if (
+      cache &&
+      cache.entityId === entityId &&
+      cache.origState === orig &&
+      cache.markerImage === markerImage &&
+      cache.markerIcon === markerIcon &&
+      cache.markerName === markerName
+    ) {
+      patchedState = cache.patchedState;
+    } else {
+      const origAttrs = orig.attributes || {};
+      const nextAttrs = {
+        ...origAttrs,
+        ...(markerName ? { friendly_name: markerName } : {}),
+      };
+      if (markerImage) {
+        nextAttrs.entity_picture = markerImage;
+      } else if (!origAttrs.entity_picture && markerIcon) {
+        nextAttrs.icon = markerIcon;
+      }
+      patchedState = { ...orig, attributes: nextAttrs };
+    }
+
+    const patchedStates = { ...baseHass.states, [entityId]: patchedState };
+    const mapHass = new Proxy(baseHass, {
+      get(target, prop) {
+        if (prop === "states") return patchedStates;
+        const val = Reflect.get(target, prop, target);
+        return typeof val === "function" ? val.bind(target) : val;
+      },
+    });
+
+    this._mapHassCache = {
+      baseHass,
+      entityId,
+      origState: orig,
+      markerImage,
+      markerIcon,
+      markerName,
+      patchedState,
+      mapHass,
+    };
+    return mapHass;
+  }
+
   _syncEmbeddedMapCard() {
     const host = this.shadowRoot?.querySelector(".vehicle-map-host");
     if (!host) {
       this._mapCardEl = null;
       this._mapCardConfigKey = "";
+      this._mapHassCache = null;
       return;
     }
     const entityId = host.dataset.entityId || "";
     const hours = Number(host.dataset.hours) || 0;
+    const markerImage = host.dataset.markerImage || "";
+    const markerIcon = host.dataset.markerIcon || "";
+    const markerName = host.dataset.markerName || "";
     const darkKey = this.hass?.themes?.darkMode ? "dark" : "light";
     if (!entityId) return;
 
-    const configKey = `${entityId}|${hours}|${darkKey}`;
+    const hasPhoto = Boolean(
+      markerImage || this.hass?.states?.[entityId]?.attributes?.entity_picture
+    );
+    const configKey = `${entityId}|${hours}|${darkKey}|${
+      hasPhoto ? "img" : "ico"
+    }|${markerImage}|${markerIcon}|${markerName}`;
+    const mapHass = this._buildMapHass(
+      entityId,
+      markerImage,
+      markerIcon,
+      markerName
+    );
     if (this._mapCardEl && this._mapCardConfigKey === configKey) {
       if (this._mapCardEl.parentNode !== host) {
         host.replaceChildren(this._mapCardEl);
       }
-      this._mapCardEl.hass = this.hass;
+      this._mapCardEl.hass = mapHass;
       return;
     }
 
@@ -1501,9 +1589,12 @@ class PassableVehicleCard extends LitElement {
       .then((helpers) => {
         const currentHost = this.shadowRoot?.querySelector(".vehicle-map-host");
         if (!currentHost || this._mapCardConfigKey !== configKey) return;
+        const entityEntry = { entity: entityId, focus: true };
+        if (markerName) entityEntry.name = markerName;
+        if (!hasPhoto) entityEntry.label_mode = "icon";
         const el = helpers.createCardElement({
           type: "map",
-          entities: [entityId],
+          entities: [entityEntry],
           default_zoom: 15,
           aspect_ratio: "16:10",
           auto_fit: true,
@@ -1511,7 +1602,12 @@ class PassableVehicleCard extends LitElement {
           hours_to_show: hours,
           theme_mode: "auto",
         });
-        el.hass = this.hass;
+        el.hass = this._buildMapHass(
+          entityId,
+          markerImage,
+          markerIcon,
+          markerName
+        );
         this._mapCardEl = el;
         currentHost.replaceChildren(el);
         clearTimeout(this._mapResizeTimer);
@@ -3278,6 +3374,9 @@ class PassableVehicleCard extends LitElement {
                           data-map-host="true"
                           data-entity-id="${entities.location}"
                           data-hours="${this._mapTrailHours}"
+                          data-marker-image="${vehCfg.summary_image || vehCfg.image || ""}"
+                          data-marker-icon="${vehCfg.icon || (vehCfg.fuel_type === "ice" ? "mdi:car" : "mdi:car-electric")}"
+                          data-marker-name="${vehCfg.title || ""}"
                         ></div>
                       `
                     : html`
